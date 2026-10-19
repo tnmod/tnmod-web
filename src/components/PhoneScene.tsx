@@ -8,7 +8,6 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ScrollSmoother } from "gsap/ScrollSmoother";
 import { chapters, clamp, STORY } from "../animation/timeline";
 import { createPortfolioMotion } from "../animation/portfolioMotion";
-import CallerLcd from "./CallerLcd";
 import type { PortfolioMotion } from "../animation/portfolioMotion";
 
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
