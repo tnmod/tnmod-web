@@ -8,6 +8,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ScrollSmoother } from "gsap/ScrollSmoother";
 import { chapters, clamp, STORY } from "../animation/timeline";
 import { createPortfolioMotion } from "../animation/portfolioMotion";
+import CallerLcd from "./CallerLcd";
 import type { PortfolioMotion } from "../animation/portfolioMotion";
 
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
@@ -15,6 +16,8 @@ gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 type Props = {
   contentRef: RefObject<HTMLElement | null>;
   onFallback: () => void;
+  onProgress: (value: number) => void;
+  onReady: () => Promise<void>;
 };
 
 function releaseScene(scene: THREE.Object3D) {
@@ -39,7 +42,7 @@ function releaseScene(scene: THREE.Object3D) {
   textures.forEach((value) => value.dispose());
 }
 
-export default function PhoneScene({ contentRef, onFallback }: Props) {
+export default function PhoneScene({ contentRef, onFallback, onProgress, onReady }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const callerRef = useRef<HTMLDivElement>(null);
   const voiceRef = useRef<HTMLDivElement>(null);
@@ -107,7 +110,11 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
     let lastRenderedTime = -1;
     let isDirty = true;
     let phasePositions: number[] = [];
+    const fadeCaller = callerRef.current
+      ? gsap.quickTo(callerRef.current, "opacity", { duration: 0.3, ease: "power2.out" })
+      : undefined;
     const screenPosition = new THREE.Vector3();
+    const screenEdge = new THREE.Vector3();
     const voicePosition = new THREE.Vector3();
     const status = document.querySelector<HTMLElement>(".connection-label");
     const progress = document.querySelector<HTMLElement>(
@@ -119,6 +126,7 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
       wrapper: "#smooth-wrapper",
       content: "#smooth-content",
       smooth: 0.85,
+      speed: 0.5,
       smoothTouch: false,
       effects: false,
     });
@@ -143,6 +151,40 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
       smoother.scrollTo(target, true, "top 15%");
     };
     document.addEventListener("click", followAnchor);
+    const header = document.querySelector<HTMLElement>(".header");
+    let navSample = smoother.scrollTop();
+    let navHidden = false;
+    let moveNav: gsap.QuickToFunc | undefined;
+    const navContext = gsap.context(() => {
+      if (header) {
+        gsap.set(header, { yPercent: 0 });
+        moveNav = gsap.quickTo(header, "yPercent", {
+          duration: 0.35, ease: "power3.out",
+        });
+      }
+    }, header ?? content);
+    const showNav = () => {
+      navHidden = false;
+      moveNav?.(0);
+    };
+    header?.addEventListener("focusin", showNav);
+    function updateNav(scroll: number) {
+      if (scroll <= 300) {
+        if (navHidden) showNav();
+        navSample = scroll;
+        return;
+      }
+      const delta = scroll - navSample;
+      // Accumulate a small movement before switching to avoid direction jitter.
+      if (Math.abs(delta) < 8) return;
+      const hide = delta > 0 && !header?.querySelector(":focus-visible");
+      if (hide !== navHidden) {
+        navHidden = hide;
+        moveNav?.(hide ? -105 : 0);
+      }
+      navSample = scroll;
+    }
+
     function measure() {
       const viewport = window.innerHeight;
       phasePositions = chapters.map((chapter, i) => {
@@ -161,6 +203,7 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
     function updateScroll() {
       if (!phasePositions.length) return;
       const scroll = smoother.scrollTop();
+      updateNav(scroll);
       atTop = scroll < 8;
       let index = 0;
       for (let i = 1; i < chapters.length; i++)
@@ -230,6 +273,9 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
       try {
         const gltf = await new GLTFLoader().loadAsync(
           "/models/portfolio-phone.glb",
+          (event) => {
+            if (!cancelled) onProgress(event.total > 0 ? event.loaded / event.total * 70 : 35);
+          },
         );
         if (cancelled) {
           releaseScene(gltf.scene);
@@ -258,7 +304,9 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
         action.play();
         resize();
         mixer.setTime(atTop ? 0 : targetTime);
+        onProgress(75);
         await renderer.compileAsync(scene, camera);
+        onProgress(88);
         await document.fonts.ready;
         if (cancelled) return;
         scene.updateMatrixWorld(true);
@@ -274,8 +322,11 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
             };
           });
         }
+        onProgress(96);
         setLoaded(true);
         raf = requestAnimationFrame(tick);
+        await onReady();
+        if (!cancelled) motion?.startOpening();
       } catch (error) {
         if (!cancelled) {
           console.error("Unable to prepare the phone scene.", error);
@@ -323,10 +374,16 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
         if (callerRef.current && screenAnchor) {
           screenAnchor.getWorldPosition(screenPosition);
           screenPosition.project(camera);
+          screenEdge.set(0.020, 0, 0);
+          screenAnchor.localToWorld(screenEdge);
+          screenEdge.project(camera);
+          const edgeX = (screenEdge.x - screenPosition.x) * canvasWidth * 0.5;
+          const edgeY = -(screenEdge.y - screenPosition.y) * canvasHeight * 0.5;
+          callerRef.current.style.width = `${Math.hypot(edgeX, edgeY) * 2}px`;
+          callerRef.current.style.transform = `translate(-50%, -50%) rotate(${Math.atan2(edgeY, edgeX)}rad)`;
           callerRef.current.style.left = `${(screenPosition.x * 0.5 + 0.5) * 100}%`;
           callerRef.current.style.top = `${(-screenPosition.y * 0.5 + 0.5) * 100}%`;
-          callerRef.current.style.opacity =
-            active === 1 && time > 3.3 && time <= 5.1 ? "1" : "0";
+          fadeCaller?.(active === 1 && time > 3.3 && time <= 5.1 ? 1 : 0);
         }
         renderer.render(scene, camera);
         lastRenderedTime = time;
@@ -342,6 +399,9 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
       cancelAnimationFrame(raf);
       observer.disconnect();
       trigger.kill();
+      header?.removeEventListener("focusin", showNav);
+      navContext.revert();
+      fadeCaller?.tween.kill();
       motion?.dispose();
       smoother.kill();
       document.removeEventListener("click", followAnchor);
@@ -356,7 +416,7 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
       renderer.domElement.remove();
       document.documentElement.removeAttribute("data-chapter");
     };
-  }, [contentRef, onFallback]);
+  }, [contentRef, onFallback, onProgress, onReady]);
 
   return (
     <>
@@ -367,11 +427,6 @@ export default function PhoneScene({ contentRef, onFallback }: Props) {
             Connecting the call…
           </div>
         )}
-        <div ref={callerRef} className="caller-display" aria-hidden="true">
-          <span>Incoming call</span>
-          <strong>Phú Tín</strong>
-          <span>Frontend developer</span>
-        </div>
       </div>
       <div className="voice-source" ref={voiceRef} aria-hidden="true">
         <span className="voice-orbit" />

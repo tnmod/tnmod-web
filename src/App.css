@@ -3,7 +3,7 @@
   position: relative;
 }
 .header {
-  position: absolute;
+  position: fixed;
   inset: 0 0 auto;
   z-index: 10;
   display: flex;
@@ -37,7 +37,6 @@
   background: currentColor;
   transform: scaleX(0);
   transform-origin: left;
-  transition: transform 0.4s var(--ease);
 }
 .nav a:hover::after {
   transform: scaleX(1);
@@ -55,7 +54,6 @@
   padding: 12px 19px;
   border: 1px solid #183c3c30;
   border-radius: 30px;
-  transition: background 0.4s;
 }
 .cv-link:hover {
   background: #fafcf980;
@@ -86,7 +84,6 @@
   z-index: 0;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 1s var(--ease);
 }
 .phone-scene.is-ready {
   opacity: 1;
@@ -112,28 +109,6 @@
 }
 .phone-scene:not(.is-ready) canvas {
   opacity: 0;
-}
-.caller-display {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 140px;
-  padding: 9px 3px;
-  text-align: center;
-  opacity: 0;
-  color: #213d35;
-  background: #b9c7ac;
-  box-shadow: 0 0 20px #b9c7ac40;
-  font-size: 8px;
-  transition: opacity 0.35s;
-  line-height: 1.6;
-}
-.caller-display strong {
-  display: block;
-  font-size: 17px;
-  font-weight: 500;
-}
-.caller-display span {
-  display: block;
 }
 .progress-track {
   position: fixed;
@@ -213,9 +188,6 @@ main {
   border-radius: 50%;
   width: 46px;
   height: 46px;
-  transition:
-    background 0.4s,
-    transform 0.5s var(--ease);
 }
 .circle-icon svg {
   width: 20px;
@@ -223,7 +195,6 @@ main {
 }
 .round-link:hover .circle-icon {
   background: #fafcf9;
-  transform: translateY(4px);
 }
 .hero-bottom {
   position: absolute;
@@ -405,11 +376,8 @@ h2 {
   aspect-ratio: 1.6;
   border-radius: 12px;
   overflow: hidden;
-  transition: transform 0.65s var(--ease);
 }
-.visual-link:hover .project-visual {
-  transform: translateY(-4px);
-}
+
 .project-open {
   position: absolute;
   right: 18px;
@@ -420,12 +388,9 @@ h2 {
   height: 40px;
   background: #fafcf9;
   border-radius: 50%;
-  transition: transform 0.5s var(--ease);
   box-shadow: 0 4px 20px #183c3c0c;
 }
-.visual-link:hover .project-open {
-  transform: rotate(45deg);
-}
+
 .project-heading {
   display: flex;
   justify-content: space-between;
@@ -932,14 +897,6 @@ h2 {
     right: 0;
     background: linear-gradient(var(--paper), #e7ece800);
   }
-  .caller-display {
-    width: 100px;
-    font-size: 6px;
-    padding: 5px;
-  }
-  .caller-display strong {
-    font-size: 12px;
-  }
   .scene-loading {
     bottom: auto;
     top: 25svh;
@@ -1323,3 +1280,68 @@ html.has-smooth-scroll {
     min-height: 110svh;
   }
 }
+
+html.is-loading {
+  overflow: hidden !important;
+  scroll-behavior: auto;
+}
+.page-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #e7ede9;
+  color: #173e3f;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  touch-action: none;
+}
+.page-loader.is-complete {
+  visibility: hidden;
+  pointer-events: none;
+}
+.loader-brand {
+  position: absolute;
+  top: 32px;
+  left: 5vw;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -2px;
+}
+.loader-count {
+  font-size: clamp(80px, 14vw, 180px);
+  font-weight: 500;
+  letter-spacing: -0.07em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.loader-count .loader-unit {
+  font-size: 0.25em;
+  letter-spacing: 0;
+  margin-left: 12px;
+}
+.loader-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: #173e3f22;
+  margin: 0;
+}
+.loader-track > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #2859c5;
+  transform-origin: left;
+}
+.loader-caption {
+  font-size: 12px;
+  margin-top: 20px;
+}
+
+

@@ -34,51 +34,107 @@ export function createPortfolioMotion(
 ) {
   const streams = new Map<Element, Stream>();
   const splits: SplitText[] = [];
+  const removeInteractions: (() => void)[] = [];
+  const supporting = new Map<Element, gsap.core.Timeline>();
   const ease = gsap.parseEase("power3.out");
   let pulse: gsap.core.Timeline;
   let pulseVisibility: gsap.core.Tween;
   let speaking = false;
+  let opening: gsap.core.Timeline;
   const positionVoice = gsap.quickSetter(voice, "css");
 
   const context = gsap.context(() => {
     root.classList.add("has-motion");
+    root
+      .querySelectorAll<HTMLElement>(".visual-link, .round-link")
+      .forEach((link) => {
+        const hover = gsap.timeline({ paused: true });
+        const visual = link.querySelector(".project-visual");
+        const arrow = link.querySelector(".project-open");
+        const circle = link.querySelector(".circle-icon");
+        if (visual)
+          hover.to(visual, { y: -4, duration: 0.45, ease: "power2.out" }, 0);
+        if (arrow) hover.to(arrow, { rotation: 45, duration: 0.45 }, 0);
+        if (circle) hover.to(circle, { y: 4, duration: 0.35 }, 0);
+        const enter = () => {
+          hover.play();
+        };
+        const leave = () => {
+          hover.reverse();
+        };
+        link.addEventListener("pointerenter", enter);
+        link.addEventListener("pointerleave", leave);
+        link.addEventListener("focus", enter);
+        link.addEventListener("blur", leave);
+        removeInteractions.push(() => {
+          link.removeEventListener("pointerenter", enter);
+          link.removeEventListener("pointerleave", leave);
+          link.removeEventListener("focus", enter);
+          link.removeEventListener("blur", leave);
+        });
+      });
 
-    // One orchestrated opening: masked lines, then the supporting copy.
+    // Animate the intact heading: persistent masks and automatic line re-splits
+    // can otherwise leave later lines clipped after fonts/layout settle.
     const hero = root.querySelector<HTMLElement>("#hero-title");
+    const heroSupport = root.querySelectorAll(".hero-description, .round-link");
+    opening = gsap.timeline({ paused: true });
     if (hero) {
-      const label = spokenText(hero);
-      splits.push(
-        SplitText.create(hero, {
-          type: "lines",
-          mask: "lines",
-          autoSplit: true,
-          linesClass: "hero-motion-line",
-          onSplit(self) {
-            hero.setAttribute("aria-label", label);
-            return gsap.from(self.lines, {
-              yPercent: 115,
-              rotation: 2,
-              autoAlpha: 0,
-              stagger: 0.13,
-              duration: 1.3,
-              ease: "power4.out",
-            });
-          },
-        }),
+      opening.fromTo(
+        hero,
+        { y: 38, autoAlpha: 0 },
+        {
+          y: 0,
+          autoAlpha: 1,
+          duration: 1.1,
+          ease: "power3.out",
+          clearProps: "transform,opacity,visibility",
+        },
       );
     }
-    gsap.from(root.querySelectorAll(".hero-description, .round-link"), {
-      autoAlpha: 0,
-      y: 20,
-      stagger: 0.15,
-      duration: 0.9,
-      delay: 0.35,
-      ease: "power3.out",
-    });
+    opening.fromTo(
+      heroSupport,
+      { autoAlpha: 0, y: 20 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        stagger: 0.15,
+        duration: 0.7,
+        ease: "power3.out",
+        clearProps: "transform,opacity,visibility",
+      },
+      ">",
+    );
 
     function receiverText(selector: string, start: number, end: number) {
       const heading = root.querySelector<HTMLElement>(selector);
       if (!heading) return;
+      const supportSelector =
+        selector === "#about-title"
+          ? ".left-copy > .section-kicker, .left-copy > .body-large, .left-copy > .experience-list, .left-copy > .skill-line, .left-copy > .text-link"
+          : selector === "#work-title"
+            ? ".work-heading > p"
+            : ".pickup-message > .small-label";
+      const support = root.querySelectorAll(supportSelector);
+      if (support.length) {
+        supporting.set(
+          heading,
+          gsap
+            .timeline({ paused: true })
+            .fromTo(
+              support,
+              { autoAlpha: 0, y: 14 },
+              {
+                autoAlpha: 1,
+                y: 0,
+                duration: 0.55,
+                stagger: 0.09,
+                ease: "power2.out",
+                immediateRender: true,
+              },
+            ),
+        );
+      }
       const accessibleText = spokenText(heading);
       splits.push(
         SplitText.create(heading, {
@@ -115,50 +171,6 @@ export function createPortfolioMotion(
     // The actual projected speaker is the source, not an arbitrary side offset.
     receiverText(".pickup-message p", STORY.liftStart + 0.65, STORY.liftEnd);
     receiverText("#about-title", STORY.liftEnd, STORY.liftEnd + 0.65);
-
-    const description = root.querySelector<HTMLElement>(".body-large");
-    if (description) {
-      splits.push(
-        SplitText.create(description, {
-          type: "words,lines",
-          autoSplit: true,
-          wordsClass: "reading-word",
-          onSplit(self) {
-            return gsap.fromTo(
-              self.words,
-              { opacity: 0.3 },
-              {
-                opacity: 1,
-                stagger: 0.045,
-                ease: "none",
-                scrollTrigger: {
-                  trigger: description,
-                  start: "top 78%",
-                  end: "bottom 42%",
-                  scrub: true,
-                },
-              },
-            );
-          },
-        }),
-      );
-    }
-
-    const experience = root.querySelectorAll(".experience-list > div");
-    if (experience.length) {
-      gsap.from(experience, {
-        x: 65,
-        autoAlpha: 0,
-        stagger: 0.16,
-        duration: 1,
-        ease: "power3.out",
-        scrollTrigger: {
-          trigger: root.querySelector(".experience-list"),
-          start: "top 83%",
-          toggleActions: "play none none reverse",
-        },
-      });
-    }
 
     const transition = root.querySelector<HTMLElement>(".transition-section p");
     if (transition) {
@@ -275,15 +287,33 @@ export function createPortfolioMotion(
   ScrollTrigger.refresh();
 
   return {
+    startOpening() {
+      opening.play();
+    },
     update(time: number) {
       const origin = getOrigin();
       let emitting = false;
       for (const [heading, stream] of streams) {
         const bounds = heading.getBoundingClientRect();
-        // Share the Blender clock and measure in the live smoothed viewport.
-        const progress = clamp(
+        // Wait until the heading reaches 50% from the viewport top.
+        // The Blender clock remains a gate so text cannot precede pickup.
+        const storyProgress = clamp(
           (time - stream.start) / (stream.end - stream.start),
         );
+        const viewportProgress = clamp(
+          (window.innerHeight * 0.5 - bounds.top) / (window.innerHeight * 0.25),
+        );
+        const progress = Math.min(storyProgress, viewportProgress);
+        const support = supporting.get(heading);
+        if (progress >= 1) {
+          if (
+            support?.reversed() ||
+            (support?.paused() && support.progress() < 1)
+          )
+            support.play();
+        } else if (support && !support.reversed()) {
+          support.reverse();
+        }
         if (progress > 0.01 && progress < 0.96) emitting = true;
         const side = origin.x > window.innerWidth / 2 ? 1 : -1;
         const count = stream.words.length;
@@ -322,11 +352,13 @@ export function createPortfolioMotion(
       }
     },
     dispose() {
+      removeInteractions.forEach((remove) => remove());
       context.revert();
       splits.forEach((split) => {
         if (split.isSplit) split.revert();
       });
       streams.clear();
+      supporting.clear();
       root.classList.remove("has-motion");
     },
   };

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { LoadingMotion } from "./animation/loadingMotion";
 import { profile, projects } from "./content/portfolio";
 import "./App.css";
 
@@ -121,16 +122,49 @@ function ProjectVisual({
 
 function App() {
   const mainRef = useRef<HTMLElement>(null);
-  const [simple, setSimple] = useState(() => {
-    try {
-      const preference = localStorage.getItem("tnmod-motion");
-      if (preference === "full" || preference === "reduced")
-        return preference === "reduced";
-    } catch {
-      // Storage may be unavailable; respect the system preference instead.
+  const loaderRef = useRef<HTMLDivElement>(null);
+  const [revealed, setRevealed] = useState(false);
+  const loadingMotion = useRef<Promise<LoadingMotion | null>>(
+    Promise.resolve(null),
+  );
+  const loadTarget = useRef(0);
+  const finishing = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let controller: LoadingMotion | null = null;
+    if (!window.matchMedia("(max-width: 760px)").matches) {
+      loadingMotion.current = import("./animation/loadingMotion").then(
+        ({ createLoadingMotion }) => {
+          if (cancelled || !loaderRef.current) return null;
+          controller = createLoadingMotion(loaderRef.current);
+          controller.report(loadTarget.current);
+          return controller;
+        },
+      );
     }
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  });
+    return () => {
+      cancelled = true;
+      controller?.dispose();
+    };
+  }, []);
+
+  const finishLoading = useCallback(() => {
+    if (finishing.current) return finishing.current;
+    finishing.current = (async () => {
+      const controller = await loadingMotion.current;
+      if (controller) await controller.finish();
+      window.scrollTo({ top: 0, behavior: "instant" });
+      document.documentElement.classList.remove("is-loading");
+      setRevealed(true);
+    })();
+    return finishing.current;
+  }, []);
+  const reportProgress = useCallback((value: number) => {
+    loadTarget.current = Math.max(loadTarget.current, value);
+    void loadingMotion.current.then((controller) => controller?.report(value));
+  }, []);
+  const [simple, setSimple] = useState(false);
   const [mobile, setMobile] = useState(
     () => window.matchMedia("(max-width: 760px)").matches,
   );
@@ -139,6 +173,17 @@ function App() {
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleFallback = useCallback(() => setSimple(true), []);
   const staticMode = mobile || simple;
+
+  useEffect(() => {
+    if (!staticMode || revealed) return;
+    let cancelled = false;
+    void document.fonts.ready.then(() => {
+      if (!cancelled) void finishLoading();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [staticMode, revealed, finishLoading]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 760px)");
@@ -153,16 +198,6 @@ function App() {
     },
     [],
   );
-
-  function toggleMotion() {
-    const next = !simple;
-    setSimple(next);
-    try {
-      localStorage.setItem("tnmod-motion", next ? "reduced" : "full");
-    } catch {
-      // The toggle still works when browser storage is disabled.
-    }
-  }
 
   async function copyEmail() {
     try {
@@ -179,6 +214,24 @@ function App() {
     <div
       className={`portfolio${staticMode ? " is-simple" : ""}${mobile ? " is-mobile" : ""}`}
     >
+      <div
+        ref={loaderRef}
+        className={`page-loader${revealed ? " is-complete" : ""}`}
+        role="status"
+        aria-live="polite"
+        aria-hidden={revealed}
+        aria-label={revealed ? "Portfolio ready" : "Loading portfolio"}
+      >
+        <span className="loader-brand">tnmod.</span>
+        <div className="loader-count">
+          <span className="loader-number">0</span>
+          <span className="loader-unit">%</span>
+        </div>
+        <div className="loader-track">
+          <span />
+        </div>
+        <span className="loader-caption">Preparing our conversation</span>
+      </div>
       <a className="skip-link" href="#about">
         Skip to the introduction
       </a>
@@ -190,20 +243,7 @@ function App() {
         >
           tnmod<span className="wordmark-dot">.</span>
         </a>
-        <nav
-          className={menuOpen ? "nav is-open" : "nav"}
-          aria-label="Main navigation"
-        >
-          {[
-            ["#about", "About"],
-            ["#work", "Work"],
-            ["#contact", "Contact"],
-          ].map(([href, text]) => (
-            <a key={href} href={href} onClick={() => setMenuOpen(false)}>
-              {text}
-            </a>
-          ))}
-        </nav>
+    
         <div className="header-actions">
           <a
             className="cv-link"
@@ -232,7 +272,12 @@ function App() {
             </div>
           }
         >
-          <PhoneScene contentRef={mainRef} onFallback={handleFallback} />
+          <PhoneScene
+            contentRef={mainRef}
+            onFallback={handleFallback}
+            onProgress={reportProgress}
+            onReady={finishLoading}
+          />
         </Suspense>
       )}
       <div className="progress-track" aria-hidden="true">
@@ -553,9 +598,6 @@ function App() {
               {simple ? "Simple view" : "Incoming call"}
             </span>
           </span>
-          <button onClick={toggleMotion} aria-pressed={simple}>
-            {simple ? "Enable 3D experience" : "Reduce motion"}
-          </button>
         </div>
       )}
     </div>
