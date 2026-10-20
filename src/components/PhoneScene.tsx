@@ -9,6 +9,9 @@ import { ScrollSmoother } from "gsap/ScrollSmoother";
 import { chapters, clamp, STORY } from "../animation/timeline";
 import { createPortfolioMotion } from "../animation/portfolioMotion";
 import type { PortfolioMotion } from "../animation/portfolioMotion";
+import { createCallDisplay } from "../animation/callDisplay";
+import { createScrollPacing } from "../animation/scrollPacing";
+import { createAnchorNavigation } from "../animation/anchorNavigation";
 
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 
@@ -95,6 +98,10 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     let screenAnchor: THREE.Object3D | undefined;
     let voiceAnchor: THREE.Object3D | undefined;
     let motion: PortfolioMotion | undefined;
+    let scrollPacing: ReturnType<typeof createScrollPacing> | undefined;
+    let anchorNavigation: ReturnType<typeof createAnchorNavigation> | undefined;
+    let callDisplay: Awaited<ReturnType<typeof createCallDisplay>> | undefined;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let canvasWidth = window.innerWidth;
     let canvasHeight = window.innerHeight;
     let canvasShift = 0;
@@ -146,10 +153,23 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       const target = id ? document.getElementById(id) : null;
       if (!target) return;
       event.preventDefault();
-      history.replaceState(null, "", `#${id}`);
-      smoother.scrollTo(target, true, "top 15%");
+      if (location.hash !== `#${id}`) history.pushState(null, "", `#${id}`);
+      showNav();
+      if (anchorNavigation) anchorNavigation.to(target);
+      else smoother.scrollTo(target, true, "top top");
+    };
+    const followLocation = () => {
+      anchorNavigation?.cancel();
+      const target = document.getElementById(location.hash.slice(1));
+      if (target) smoother.scrollTo(target, false, "top top");
+      else smoother.scrollTo(0, false);
+      navSample = smoother.scrollTop();
+      showNav();
     };
     document.addEventListener("click", followAnchor);
+    window.addEventListener("popstate", followLocation);
+    window.addEventListener("hashchange", followLocation);
+    window.addEventListener("portfolio-ready", followLocation);
     const header = document.querySelector<HTMLElement>(".header");
     let navSample = smoother.scrollTop();
     let navHidden = false;
@@ -168,6 +188,10 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     };
     header?.addEventListener("focusin", showNav);
     function updateNav(scroll: number) {
+      if (anchorNavigation?.active) {
+        navSample = scroll;
+        return;
+      }
       if (scroll <= 300) {
         if (navHidden) showNav();
         navSample = scroll;
@@ -197,6 +221,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           smoother.scrollTop() -
           viewport,
       );
+      scrollPacing?.refresh();
     }
 
     function updateScroll() {
@@ -282,6 +307,11 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         }
         model = gltf.scene;
         scene.add(model);
+        callDisplay = await createCallDisplay(model);
+        if (cancelled) {
+          callDisplay.dispose();
+          return;
+        }
         const authoredCamera = gltf.cameras.find(
           (c) => c instanceof THREE.PerspectiveCamera,
         );
@@ -320,6 +350,10 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
               y: (-voicePosition.y * 0.5 + 0.5) * canvasHeight,
             };
           });
+          scrollPacing = createScrollPacing(content!, smoother,
+            () => motion!.getScrollReadiness(), () => phasePositions);
+          anchorNavigation = createAnchorNavigation(content!, smoother,
+            () => scrollPacing!.getZones());
         }
         onProgress(96);
         setLoaded(true);
@@ -337,10 +371,8 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     function tick(timestamp: number) {
       raf = 0;
       if (cancelled || document.hidden || !camera || !mixer) return;
-      const delta = Math.min(
-        0.05,
-        previousTimestamp ? (timestamp - previousTimestamp) / 1000 : 0,
-      );
+      const elapsedDelta = previousTimestamp ? (timestamp - previousTimestamp) / 1000 : 0;
+      const delta = Math.min(0.05, elapsedDelta);
       previousTimestamp = timestamp;
       updateScroll();
       let time: number;
@@ -351,7 +383,8 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         ringTime = 0;
         time = Math.min(STORY.end - 0.00001, targetTime);
       }
-      if (isDirty || Math.abs(time - lastRenderedTime) > 0.00001) {
+      const displayChanged = callDisplay?.update(time, reducedMotion.matches);
+      if (isDirty || displayChanged || Math.abs(time - lastRenderedTime) > 0.00001) {
         mixer.setTime(time);
         scene.updateMatrixWorld(true);
         const mobile = window.innerWidth <= 760;
@@ -359,10 +392,14 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         const closing = clamp(
           (time - STORY.hangupStart) / (STORY.rest - STORY.hangupStart),
         );
-        const shift = mobile ? 0 : 12 * opening + 14 * closing;
+        const closingLayout = Math.sin(clamp(closing / 0.4) * Math.PI / 2);
+        const shift = mobile ? 0 : 12 * opening - 38 * closingLayout;
         canvasShift = (shift * window.innerWidth) / 100;
-        host!.style.transform = `translateX(${shift}vw)`;
-        const framing = mobile ? 1 : 1 + 0.23 * Math.max(opening, closing);
+        // Finish with an oversized phone cropped by the left edge. Keep the LCD
+        // in view while the lower body and cord continue behind the footer.
+        const lift = mobile ? 0 : -1 * closingLayout;
+        host!.style.transform = `translate(${shift}vw, ${lift}vh)`;
+        const framing = mobile ? 1 : 1 + 0.23 * opening - 0.22 * closingLayout;
         camera.fov = THREE.MathUtils.radToDeg(
           2 *
             Math.atan(
@@ -389,6 +426,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         isDirty = false;
       }
       motion?.update(time);
+      scrollPacing?.update();
       raf = requestAnimationFrame(tick);
     }
 
@@ -402,8 +440,14 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       navContext.revert();
       fadeCaller?.tween.kill();
       motion?.dispose();
+      scrollPacing?.dispose();
+      anchorNavigation?.dispose();
+      callDisplay?.dispose();
       smoother.kill();
       document.removeEventListener("click", followAnchor);
+      window.removeEventListener("popstate", followLocation);
+      window.removeEventListener("hashchange", followLocation);
+      window.removeEventListener("portfolio-ready", followLocation);
       document.documentElement.classList.remove("has-smooth-scroll");
       document.removeEventListener("visibilitychange", visibilityChanged);
       renderer.domElement.removeEventListener("webglcontextlost", contextLost);

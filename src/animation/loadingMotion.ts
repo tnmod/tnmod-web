@@ -1,9 +1,27 @@
 import gsap from "gsap";
 
+// Fictional boot assets for the portfolio's loading sequence.
+const bootFiles = [
+  { at: 0, file: "/boot/session.manifest.json" },
+  { at: 8, file: "/scene/gxp1405.body.meshbin" },
+  { at: 19, file: "/scene/receiver.geometry.bin" },
+  { at: 30, file: "/scene/handset_cord.rig.bin" },
+  { at: 41, file: "/materials/graphite_surface.ktx2" },
+  { at: 53, file: "/display/lcd_call_states.atlas" },
+  { at: 64, file: "/motion/receiver_pickup.anim" },
+  { at: 74, file: "/camera/conversation.track.json" },
+  { at: 83, file: "/content/project_connections.index" },
+  { at: 91, file: "/motion/interface_reveal.timeline" },
+  { at: 97, file: "/runtime/portfolio.entry.js" },
+  { at: 100, file: "/runtime/session.ready" },
+];
+
 /** One GSAP clock owns the displayed number, bar and unlock panel. */
 export function createLoadingMotion(panel: HTMLElement) {
   const number = panel.querySelector<HTMLElement>(".loader-number")!;
   const bar = panel.querySelector<HTMLElement>(".loader-track > span")!;
+  const caption = panel.querySelector<HTMLElement>(".loader-caption")!;
+  let previousFile = "";
   const state = { value: 0 };
   const setBar = gsap.quickSetter(bar, "scaleX");
   let actual = 0;
@@ -16,6 +34,11 @@ export function createLoadingMotion(panel: HTMLElement) {
   const render = () => {
     number.textContent = String(Math.floor(state.value));
     setBar(state.value / 100);
+    const current = bootFiles.findLast((entry) => state.value >= entry.at) ?? bootFiles[0];
+    if (current.file !== previousFile) {
+      caption.textContent = `${state.value >= 100 ? "Ready" : "Loading"} ${current.file}`;
+      previousFile = current.file;
+    }
   };
   const context = gsap.context(() => {
     gsap.set(bar, { scaleX: 0, transformOrigin: "left center" });
@@ -39,7 +62,7 @@ export function createLoadingMotion(panel: HTMLElement) {
     report(value: number) {
       actual = Math.max(actual, Math.min(96, value));
     },
-    finish() {
+    finish(prepareReveal?: () => void) {
       if (completion) return completion;
       ready = true;
       pending?.kill();
@@ -54,6 +77,9 @@ export function createLoadingMotion(panel: HTMLElement) {
             onUpdate: render,
             onComplete: () => {
               number.textContent = "100";
+              // Position the scene and settle layout while the loader still
+              // fully covers it, before the panel starts moving away.
+              prepareReveal?.();
             },
           })
           .to(

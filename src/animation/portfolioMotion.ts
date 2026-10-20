@@ -2,6 +2,7 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { SplitText } from "gsap/SplitText";
 import { STORY, clamp } from "./timeline";
+import type { RevealReadiness } from "./scrollPacing";
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
 
@@ -16,6 +17,8 @@ type Stream = {
   start: number;
   end: number;
   words: Word[];
+  progress: number;
+  completedAt: number;
 };
 
 function spokenText(element: HTMLElement) {
@@ -42,6 +45,9 @@ export function createPortfolioMotion(
   let speaking = false;
   let opening: gsap.core.Timeline;
   const positionVoice = gsap.quickSetter(voice, "css");
+  const closing = root.querySelector<HTMLElement>(".hangup-section p");
+  const contactSection = root.querySelector<HTMLElement>("#contact");
+  const positionClosing = closing ? gsap.quickSetter(closing, "css") : null;
 
   const context = gsap.context(() => {
     root.classList.add("has-motion");
@@ -74,15 +80,53 @@ export function createPortfolioMotion(
         });
       });
 
+    root.querySelectorAll<HTMLElement>(
+      ".project-link, .all-work, .text-link, .contact-links a, .contact-links button",
+    ).forEach((control) => {
+      const hover = gsap.timeline({ paused: true, defaults: { duration: 0.28, ease: "power2.out" } })
+        .to(control, { y: -3 }, 0);
+      const arrow = control.querySelector(".arrow");
+      if (arrow) hover.to(arrow, { x: 3, y: -3 }, 0);
+      const press = gsap.timeline({ paused: true })
+        .to(control, { scale: 0.97, duration: 0.12, ease: "power2.out" });
+      const enter = () => { hover.play(); };
+      const leave = () => {
+        if (!control.matches(":focus-visible")) hover.reverse();
+        press.reverse();
+      };
+      const blur = () => { if (!control.matches(":hover")) hover.reverse(); };
+      const down = () => { press.play(); };
+      const up = () => { press.reverse(); };
+      control.addEventListener("pointerenter", enter);
+      control.addEventListener("pointerleave", leave);
+      control.addEventListener("focus", enter);
+      control.addEventListener("blur", blur);
+      control.addEventListener("pointerdown", down);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+      removeInteractions.push(() => {
+        control.removeEventListener("pointerenter", enter);
+        control.removeEventListener("pointerleave", leave);
+        control.removeEventListener("focus", enter);
+        control.removeEventListener("blur", blur);
+        control.removeEventListener("pointerdown", down);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+      });
+    });
+
     // Animate the intact heading: persistent masks and automatic line re-splits
     // can otherwise leave later lines clipped after fonts/layout settle.
     const hero = root.querySelector<HTMLElement>("#hero-title");
     const heroSupport = root.querySelectorAll(".hero-description, .round-link");
+    // Set every initial state now, underneath the loader. A paused timeline
+    // must not defer hiding later UI until its scheduled tween starts.
+    if (hero) gsap.set(hero, { y: 38, autoAlpha: 0 });
+    gsap.set(heroSupport, { autoAlpha: 0, y: 20 });
     opening = gsap.timeline({ paused: true });
     if (hero) {
-      opening.fromTo(
+      opening.to(
         hero,
-        { y: 38, autoAlpha: 0 },
         {
           y: 0,
           autoAlpha: 1,
@@ -92,9 +136,8 @@ export function createPortfolioMotion(
         },
       );
     }
-    opening.fromTo(
+    opening.to(
       heroSupport,
-      { autoAlpha: 0, y: 20 },
       {
         autoAlpha: 1,
         y: 0,
@@ -123,7 +166,9 @@ export function createPortfolioMotion(
             .timeline({ paused: true })
             .fromTo(
               support,
-              { autoAlpha: 0, y: 14 },
+              // Work descriptions remain readable even if a fast scroll
+              // passes the heading before its support timeline plays.
+              { autoAlpha: selector === "#work-title" ? 0.25 : 0, y: selector === "#work-title" ? 24 : 14 },
               {
                 autoAlpha: 1,
                 y: 0,
@@ -150,6 +195,8 @@ export function createPortfolioMotion(
             const stream: Stream = {
               start,
               end,
+              progress: 0,
+              completedAt: 0,
               words: self.words.map((word) => {
                 const rect = word.getBoundingClientRect();
                 const set = gsap.quickSetter(word, "css");
@@ -221,47 +268,44 @@ export function createPortfolioMotion(
           0,
         );
       }
-      timeline.from(details, { x: -35, autoAlpha: 0, stagger: 0.1 }, 0.35);
-    });
-
-    const closing = root.querySelector<HTMLElement>(".hangup-section p");
-    if (closing) {
-      gsap.from(closing, {
-        autoAlpha: 0,
-        scale: 0.94,
+      // Copy has its own viewport trigger below the image. Playing once with
+      // completion on leave prevents fast scrolling from stranding it hidden.
+      const copy = gsap.timeline({
+        defaults: { duration: 0.65, ease: "power3.out" },
         scrollTrigger: {
-          trigger: closing,
-          start: "top 85%",
-          end: "top 45%",
-          scrub: true,
+          trigger: details[0] ?? project,
+          start: "top 94%",
+          toggleActions: "play complete complete complete",
+          once: true,
+          onRefresh(self) {
+            if (self.scroll() > self.start) self.animation?.progress(1);
+          },
         },
       });
+      copy.fromTo(details, { y: 26, autoAlpha: 0.2 },
+        { y: 0, autoAlpha: 1, stagger: 0.1 });
+      copy.fromTo(project.querySelectorAll(".project-stack span"),
+        { y: 10, scale: 0.94 },
+        { y: 0, scale: 1, duration: 0.4, stagger: 0.045 }, "<0.25");
+    });
+
+    if (closing) {
+      gsap.set(closing, { autoAlpha: 0, y: 16 });
     }
 
     const contact = root.querySelector<HTMLElement>("#contact-title");
     if (contact) {
-      const label = spokenText(contact);
-      splits.push(
-        SplitText.create(contact, {
-          type: "lines",
-          mask: "lines",
-          autoSplit: true,
-          onSplit(self) {
-            contact.setAttribute("aria-label", label);
-            return gsap.from(self.lines, {
-              yPercent: 110,
-              stagger: 0.13,
-              duration: 1.1,
-              ease: "power4.out",
-              scrollTrigger: {
-                trigger: contact,
-                start: "top 86%",
-                toggleActions: "play none none reverse",
-              },
-            });
-          },
-        }),
-      );
+      gsap.from(contact, {
+        y: 32,
+        autoAlpha: 0,
+        duration: 1.1,
+        ease: "power4.out",
+        scrollTrigger: {
+          trigger: contact,
+          start: "top 86%",
+          toggleActions: "play none none reverse",
+        },
+      });
     }
 
     gsap.set(voice, { autoAlpha: 0, xPercent: -50, yPercent: -50 });
@@ -290,7 +334,41 @@ export function createPortfolioMotion(
     startOpening() {
       opening.play();
     },
+    getScrollReadiness(): RevealReadiness {
+      const complete = (selector: string, beat: number) => {
+        const heading = root.querySelector(selector);
+        if (!heading) return true;
+        const stream = streams.get(heading);
+        const support = supporting.get(heading);
+        return !!stream && stream.progress >= 1 &&
+          (!support || support.progress() >= 0.999) &&
+          performance.now() - stream.completedAt >= beat;
+      };
+      const helloHeading = root.querySelector(".pickup-message p");
+      const helloSupport = helloHeading ? supporting.get(helloHeading) : undefined;
+      const workHeading = root.querySelector("#work-title");
+      const workStream = workHeading ? streams.get(workHeading) : undefined;
+      const aboutHeading = root.querySelector("#about-title");
+      const aboutStream = aboutHeading ? streams.get(aboutHeading) : undefined;
+      return {
+        opening: opening.progress() >= 0.999,
+        hello: !helloHeading || !!helloSupport && helloSupport.progress() >= 0.999,
+        aboutTitle: !aboutHeading || !!aboutStream && aboutStream.progress >= 1,
+        about: complete("#about-title", 0),
+        workTitle: !workHeading || !!workStream && workStream.progress >= 1,
+        work: complete("#work-title", 0),
+      };
+    },
     update(time: number) {
+      if (positionClosing && contactSection) {
+        // Share the model clock so the receiver clears the copy before reveal.
+        const reveal = clamp((time - STORY.hangupStart - 0.8) / 0.35);
+        const exit = clamp(
+          (contactSection.getBoundingClientRect().top - window.innerHeight * 0.8) /
+            (window.innerHeight * 0.2),
+        );
+        positionClosing({ autoAlpha: reveal * exit, y: 16 * (1 - reveal) });
+      }
       const origin = getOrigin();
       let emitting = false;
       for (const [heading, stream] of streams) {
@@ -304,6 +382,9 @@ export function createPortfolioMotion(
           (window.innerHeight * 0.5 - bounds.top) / (window.innerHeight * 0.25),
         );
         const progress = Math.min(storyProgress, viewportProgress);
+        if (progress >= 1 && stream.progress < 1) stream.completedAt = performance.now();
+        if (progress < 1) stream.completedAt = 0;
+        stream.progress = progress;
         const support = supporting.get(heading);
         if (progress >= 1) {
           if (

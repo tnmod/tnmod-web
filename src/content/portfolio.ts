@@ -13,10 +13,11 @@ export const projects = [
     category: "Professional work",
     role: "Frontend Team Lead · VietNamBooking",
     description:
-      "Helping rebuild a flight booking platform, from the project architecture to production. Leading frontend development, refining the experience, and moving forward as a team.",
+      "A flight booking platform for searching routes and booking domestic and international journeys. My work spans frontend architecture, feature delivery, code reviews, and production releases as Frontend Team Lead at VietNamBooking.",
     stack: ["Next.js", "React Native", "TypeScript"],
     href: "https://190booking.com",
     linkLabel: "Visit website",
+    additionalLinks: [],
     visual: "booking",
   },
   {
@@ -24,10 +25,11 @@ export const projects = [
     category: "Personal project",
     role: "An offline-first desktop app for computer shops",
     description:
-      "From a single component to an entire shop. Inventory, customers, cash flow, and warranties in one offline desktop workspace, with optional cloud sync.",
-    stack: ["Electron", "React", "SQLite"],
+      "An offline desktop workspace for PC shops, covering complete builds and individual components, customer transactions, used-PC appraisals, cash flow, and sales receipts. Local SQLite storage keeps the shop running offline, with optional Firebase sync for data and images.",
+    stack: ["Electron", "React", "TypeScript", "SQLite", "Firebase"],
     href: "https://github.com/tnmod/StockPC",
     linkLabel: "Explore source",
+    additionalLinks: [],
     visual: "stock",
   },
   {
@@ -35,10 +37,11 @@ export const projects = [
     category: "Open source",
     role: "Vietnamese administrative data, made accessible",
     description:
-      "A JavaScript and TypeScript library for Vietnam’s administrative divisions. Supporting both legacy and current structures, with lookup and migration tools for developers.",
-    stack: ["TypeScript", "npm", "Open source"],
-    href: "https://github.com/tnmod/vietnam-divisions-js",
-    linkLabel: "Explore library",
+      "A published JavaScript and TypeScript library supporting both Vietnam’s legacy 63-province, three-level structure and the newer 34-province, two-level structure. Search provinces and communes, look up administrative codes, and migrate old ward codes and merged provinces through dedicated APIs.",
+    stack: ["TypeScript", "ESM / CommonJS", "npm"],
+    href: "https://www.npmjs.com/package/vietnam-divisions-js",
+    linkLabel: "View on npm",
+    additionalLinks: [{ label: "Source & docs", href: "https://github.com/tnmod/vietnam-divisions-js" }],
     visual: "divisions",
   },
 ] as const;

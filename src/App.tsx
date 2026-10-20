@@ -153,9 +153,13 @@ function App() {
     if (finishing.current) return finishing.current;
     finishing.current = (async () => {
       const controller = await loadingMotion.current;
-      if (controller) await controller.finish();
-      window.scrollTo({ top: 0, behavior: "instant" });
-      document.documentElement.classList.remove("is-loading");
+      const prepareReveal = () => {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        document.documentElement.classList.remove("is-loading");
+        window.dispatchEvent(new Event("portfolio-ready"));
+      };
+      if (controller) await controller.finish(prepareReveal);
+      else prepareReveal();
       setRevealed(true);
     })();
     return finishing.current;
@@ -169,10 +173,34 @@ function App() {
     () => window.matchMedia("(max-width: 760px)").matches,
   );
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleFallback = useCallback(() => setSimple(true), []);
   const staticMode = mobile || simple;
+
+  useEffect(() => {
+    if (staticMode || revealed) return;
+    const timeout = setTimeout(handleFallback, 20000);
+    return () => clearTimeout(timeout);
+  }, [staticMode, revealed, handleFallback]);
+
+  useEffect(() => {
+    if (!staticMode || !revealed) return;
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView();
+  }, [staticMode, revealed]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!staticMode || revealed) return;
@@ -230,7 +258,7 @@ function App() {
         <div className="loader-track">
           <span />
         </div>
-        <span className="loader-caption">Preparing our conversation</span>
+        <span className="loader-caption" aria-live="off">Loading /boot/session.manifest.json</span>
       </div>
       <a className="skip-link" href="#about">
         Skip to the introduction
@@ -243,7 +271,16 @@ function App() {
         >
           tnmod<span className="wordmark-dot">.</span>
         </a>
-    
+        <nav
+          id="primary-nav"
+          className={`nav${menuOpen ? " is-open" : ""}`}
+          aria-label="Main navigation"
+          onClick={() => setMenuOpen(false)}
+        >
+          <a href="#about">About</a>
+          <a href="#work">Work</a>
+          <a href="#contact">Contact</a>
+        </nav>
         <div className="header-actions">
           <a
             className="cv-link"
@@ -254,9 +291,11 @@ function App() {
             Résumé <Arrow diagonal />
           </a>
           <button
+            ref={menuButtonRef}
             className="menu-toggle"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
+            aria-controls="primary-nav"
             onClick={() => setMenuOpen(!menuOpen)}
           >
             <span />
@@ -506,6 +545,7 @@ function App() {
                             <span key={tag}>{tag}</span>
                           ))}
                         </div>
+                        <div className="project-links">
                         <a
                           className="project-link"
                           href={project.href}
@@ -515,6 +555,13 @@ function App() {
                           {project.linkLabel}
                           <Arrow diagonal />
                         </a>
+                        {project.additionalLinks.map((link) => (
+                          <a className="project-link" key={link.href} href={link.href}
+                            target="_blank" rel="noreferrer">
+                            {link.label}<Arrow diagonal />
+                          </a>
+                        ))}
+                        </div>
                       </div>
                     </article>
                   ))}
