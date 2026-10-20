@@ -121,6 +121,12 @@ function ProjectVisual({
 }
 
 function App() {
+  const [dark, setDark] = useState(() => document.documentElement.dataset.theme !== "light");
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#080f12" : "#e7ece8");
+    try { localStorage.setItem("portfolio-theme", dark ? "dark" : "light"); } catch { /* Storage can be disabled. */ }
+  }, [dark]);
   const mainRef = useRef<HTMLElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
   const [revealed, setRevealed] = useState(false);
@@ -282,6 +288,12 @@ function App() {
           <a href="#contact">Contact</a>
         </nav>
         <div className="header-actions">
+          <button className="theme-toggle" aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+            aria-pressed={dark} onClick={() => setDark(value => !value)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              {dark ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></> : <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z" />}
+            </svg>
+          </button>
           <a
             className="cv-link"
             href={profile.cv}

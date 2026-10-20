@@ -74,3 +74,9 @@ The desktop-only scene imports src/animation/portfolioMotion.ts, using scoped-co
 
 Scroll pacing tracks before/active/tail/done states for Interfaces and Selected connections. Tail length is 20% of the larger of the 25vh heading reveal distance and its story-clock reveal distance, independent of wheel activity while supporting copy animates. Pending gates no longer release merely because the native target passed their endpoint; new input also uses the rate of the rendered scene when it lags behind the target. There is no per-frame native-scroll correction. Interfaces retains its extra 100px allowance while supporting copy appears.
 
+
+## Night mode experiment
+
+The header theme button switches between day and night without reloading the 3D scene or resetting scroll. Night mode is the default for this experiment; the selection is remembered locally. A script in the document head applies the palette before first paint. Mobile retains the static layout with the same theme control.
+
+Night lighting uses a dim cool environment and a small green light that follows the LCD surface. A restrained bloom pass keeps the backlight visible while preserving pixel text contrast; its additive blend preserves canvas transparency. At hangup the halo and local spill dim. Day mode uses the original lighting and skips postprocessing. The original GLB is shared by both modes.

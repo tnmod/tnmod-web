@@ -94,3 +94,14 @@ svg {
     transition-duration: 0.01ms !important;
   }
 }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #080f12;
+  --ink: #dce8df;
+  --muted: #9aafa8;
+  --blue: #b7d99a;
+  color: var(--ink);
+  background: var(--paper);
+}
+:root[data-theme="light"] { color-scheme: light; }

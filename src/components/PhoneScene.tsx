@@ -3,6 +3,10 @@ import type { RefObject } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ScrollSmoother } from "gsap/ScrollSmoother";
@@ -90,7 +94,47 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     scene.add(key);
     const fill = new THREE.DirectionalLight(0xd9e9f0, 1.8);
     fill.position.set(-0.5, 0.2, -0.4);
-    scene.add(fill, new THREE.HemisphereLight(0xf7fffa, 0x697b73, 1.8));
+    const ambient = new THREE.HemisphereLight(0xf7fffa, 0x697b73, 1.8);
+    scene.add(fill, ambient);
+    const spill = new THREE.PointLight(0xc9ef9c, 0, 0.18, 2);
+    scene.add(spill);
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, new THREE.PerspectiveCamera());
+    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.2, 0.3, 0.95);
+    // Preserve the scene alpha when adding bloom, so the page background stays
+    // seamless as the authored camera framing translates the canvas.
+    bloom.blendMaterial.blending = THREE.CustomBlending;
+    bloom.blendMaterial.blendSrc = THREE.OneFactor;
+    bloom.blendMaterial.blendDst = THREE.OneFactor;
+    bloom.blendMaterial.blendSrcAlpha = THREE.ZeroFactor;
+    bloom.blendMaterial.blendDstAlpha = THREE.OneFactor;
+    composer.addPass(renderPass);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    let dark = document.documentElement.dataset.theme === "dark";
+    let lcdMaterial: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial | undefined;
+    let lcd: THREE.Mesh | undefined;
+    const lcdCenter = new THREE.Vector3();
+    const lcdNormal = new THREE.Vector3();
+    function applyTheme() {
+      dark = document.documentElement.dataset.theme === "dark";
+      scene.background = null;
+      scene.environmentIntensity = dark ? 0.24 : 1;
+      key.intensity = dark ? 0.7 : 3;
+      key.color.set(dark ? 0xb7cddc : 0xffffff);
+      fill.intensity = dark ? 0.4 : 1.8;
+      ambient.intensity = dark ? 0.25 : 1.8;
+      renderer.toneMappingExposure = dark ? 1.05 : 1.25;
+      if (lcdMaterial) {
+        lcdMaterial.toneMapped = !dark;
+        if (lcdMaterial instanceof THREE.MeshStandardMaterial) lcdMaterial.emissiveIntensity = dark ? 1.15 : 1.6;
+        else lcdMaterial.color.setScalar(dark ? 1.15 : 1);
+        lcdMaterial.needsUpdate = true;
+      }
+      isDirty = true;
+    }
+    const themeObserver = new MutationObserver(applyTheme);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     let camera: THREE.PerspectiveCamera | undefined;
     let mixer: THREE.AnimationMixer | undefined;
@@ -116,6 +160,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     let lastRenderedTime = -1;
     let isDirty = true;
     let phasePositions: number[] = [];
+    applyTheme();
     const fadeCaller = callerRef.current
       ? gsap.quickTo(callerRef.current, "opacity", { duration: 0.3, ease: "power2.out" })
       : undefined;
@@ -249,6 +294,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       canvasWidth = width;
       canvasHeight = height;
       renderer.setSize(width, height);
+      composer.setSize(width, height);
       if (camera) {
         camera.aspect = width / height;
         // Preserve the authored horizontal framing on narrow canvases.
@@ -312,12 +358,23 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           callDisplay.dispose();
           return;
         }
+        const surface = model.getObjectByName("LCD_Display");
+        if (surface instanceof THREE.Mesh) {
+          lcd = surface;
+          lcdMaterial = surface.material as THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+          surface.geometry.computeBoundingBox();
+          surface.geometry.boundingBox!.getCenter(lcdCenter);
+          const normals = surface.geometry.getAttribute("normal");
+          lcdNormal.fromBufferAttribute(normals, 0).normalize();
+        }
+        applyTheme();
         const authoredCamera = gltf.cameras.find(
           (c) => c instanceof THREE.PerspectiveCamera,
         );
         if (!(authoredCamera instanceof THREE.PerspectiveCamera))
           throw new Error("The model camera is missing.");
         camera = authoredCamera;
+        renderPass.camera = camera;
         baseFov = camera.fov;
         screenAnchor = model.getObjectByName("Caller_Display");
         voiceAnchor = model.getObjectByName("Info_Origin");
@@ -421,7 +478,16 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           callerRef.current.style.top = `${(-screenPosition.y * 0.5 + 0.5) * 100}%`;
           fadeCaller?.(active === 1 && time > 3.3 && time <= 5.1 ? 1 : 0);
         }
-        renderer.render(scene, camera);
+        if (lcd) {
+          // Offset along the actual LCD normal, following every authored pose.
+          spill.position.copy(lcdCenter).addScaledVector(lcdNormal, 0.012);
+          lcd.localToWorld(spill.position);
+        }
+        const backlight = time < STORY.rest ? 1 : 0.45;
+        spill.intensity = dark ? 0.002 * backlight : 0;
+        bloom.strength = 0.2 * backlight;
+        if (dark) composer.render();
+        else renderer.render(scene, camera);
         lastRenderedTime = time;
         isDirty = false;
       }
@@ -435,6 +501,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       cancelled = true;
       cancelAnimationFrame(raf);
       observer.disconnect();
+      themeObserver.disconnect();
       trigger.kill();
       header?.removeEventListener("focusin", showNav);
       navContext.revert();
@@ -455,6 +522,8 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       if (model) mixer?.uncacheRoot(model);
       releaseScene(scene);
       environmentTarget.dispose();
+      composer.passes.forEach(pass => pass.dispose());
+      composer.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       document.documentElement.removeAttribute("data-chapter");

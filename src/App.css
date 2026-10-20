@@ -1379,3 +1379,43 @@ html.is-loading {
 }
 
 
+
+/* Night palette keeps the LCD as the brightest point in the scene. */
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  border-radius: 50%;
+}
+.theme-toggle svg { width: 20px; height: 20px; }
+.theme-toggle:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+[data-theme="dark"] .header { background: #080f12bd; backdrop-filter: blur(12px); }
+[data-theme="dark"] .cv-link,
+[data-theme="dark"] .circle-icon,
+[data-theme="dark"] .footer { border-color: #dce8df26; }
+[data-theme="dark"] .cv-link:hover,
+[data-theme="dark"] .round-link:hover .circle-icon,
+[data-theme="dark"] .project-stack span { background: #1b2c2d; }
+[data-theme="dark"] .connection-status,
+[data-theme="dark"] .scene-toolbar button { background: #142022d9; }
+[data-theme="dark"] .status-dot { box-shadow: 0 0 12px #b7d99a55; }
+[data-theme="dark"] .page-loader { background: var(--paper); color: var(--ink); }
+[data-theme="dark"] .loader-track { background: #b7d99a22; }
+[data-theme="dark"] .loader-track > span { background: var(--blue); }
+[data-theme="dark"] .voice-orbit { border-left-color: #b7d99a66; }
+[data-theme="dark"] .skip-link { color: var(--paper); }
+[data-theme="dark"] .static-phone { mix-blend-mode: normal; border-radius: 24px; }
+[data-theme="dark"] .booking-visual { background: #203044; }
+[data-theme="dark"] .stock-visual,
+[data-theme="dark"] .divisions-visual { background: #1b2b29; }
+[data-theme="dark"] .boarding-pass,
+[data-theme="dark"] .code-window { color-scheme: light; }
+@media (max-width: 760px) {
+  .header-actions { gap: 8px; }
+  .theme-toggle { width: 40px; height: 40px; }
+}
+
+[data-theme="dark"] .project-open { background: #1b2c2d; }
+[data-theme="dark"] .visual-caption { color: #b1c2d4; }
