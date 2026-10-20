@@ -25,3 +25,11 @@ dist-ssr
 
 # Local implementation scratch files
 work/
+
+# Local development helper scripts
+scripts/
+
+# Local AI skills and dependency install cache
+.agents/
+skills-lock.json
+.yarn/install-state.gz
