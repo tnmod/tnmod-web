@@ -1469,21 +1469,6 @@ html.is-loading {
     translate: none;
     isolation: isolate;
   }
-  .portfolio:not(.is-simple) > .contact-copy::before {
-    content: "";
-    position: absolute;
-    inset: -20px -24px;
-    z-index: -1;
-    pointer-events: none;
-    border-radius: 20px;
-    background: color-mix(in srgb, var(--paper) 58%, transparent);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    mask-image:
-      linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent),
-      linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
-    mask-composite: intersect;
-  }
   .portfolio:not(.is-simple) .contact-copy h2 {
     font-size: clamp(30px, calc(var(--scene-stage-width) * 0.044), 66px);
   }
