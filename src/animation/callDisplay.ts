@@ -3,8 +3,8 @@ import glyphs from "./lcdFont.json";
 import { STORY } from "./timeline";
 import milestones from "./callMilestones.json";
 
-// Blender frame 127: the receiver has left the hook. Frame 375: it is seated.
-export const CALL = { answer: 126 / 24, end: STORY.rest } as const;
+// Connect as pickup begins, using the same milestone as Blender and scroll pacing.
+export const CALL = { answer: (milestones[0].frame - 1) / 24, end: STORY.rest } as const;
 export type CallState = "ringing" | "connected" | "ended";
 
 export function callStateAt(time: number): CallState {
@@ -50,13 +50,24 @@ export async function createCallDisplay(model: THREE.Object3D) {
   oldTextures.forEach((old) => old?.dispose());
 
   let lastKey = "";
+  let lastState: CallState | undefined;
+  let endedAt = 0;
+  let backlight = 1;
   function update(time: number, reducedMotion: boolean) {
     const state = callStateAt(time);
     const seconds = callDurationAt(time);
+    const now = performance.now();
+    if (state !== lastState) {
+      lastState = state;
+      if (state === "ended") endedAt = now;
+    }
+    // A slow bright/dim pulse keeps the message readable, including at rest.
+    const dimmed = state === "ended" && !reducedMotion && (now - endedAt) % 1500 >= 900;
+    backlight = dimmed ? 0.6 : 1;
     const row = state === "ringing"
-      ? (reducedMotion || performance.now() % 1000 < 600 ? 0 : 1)
+      ? (reducedMotion || now % 1000 < 600 ? 0 : 1)
       : state === "connected" ? 2 : 13;
-    const key = `${row}:${seconds}`;
+    const key = `${row}:${seconds}:${dimmed}`;
     if (key === lastKey) return false;
     lastKey = key;
     ctx!.drawImage(atlas, 0, row * 368, 1024, 368, 0, 0, 1024, 368);
@@ -72,9 +83,32 @@ export async function createCallDisplay(model: THREE.Object3D) {
           if (bit === "1") ctx!.fillRect(x + (i * 6 + c) * 6, 254 + r * 6, 4, 4);
         });
       }));
+      if (state === "ended") {
+        // Put the hangup message in the main name panel, not only its small header.
+        ctx!.fillStyle = "rgb(26,51,47)";
+        ctx!.fillRect(245, 101, 534, 96);
+        ctx!.fillStyle = "rgb(215,232,180)";
+        const label = "CALL ENDED";
+        const left = 512 - (label.length * 6 - 1) * 4;
+        [...label].forEach((ch, i) => font[ch]?.forEach((line, r) => {
+          [...line].forEach((bit, c) => {
+            if (bit === "1") ctx!.fillRect(left + (i * 6 + c) * 8, 121 + r * 8, 6, 6);
+          });
+        }));
+      }
+    }
+    if (state === "ended") {
+      ctx!.globalCompositeOperation = "multiply";
+      ctx!.fillStyle = "rgb(255,85,75)";
+      ctx!.fillRect(0, 0, canvas.width, canvas.height);
+      ctx!.globalCompositeOperation = "source-over";
+      if (dimmed) {
+        ctx!.fillStyle = "rgba(0,0,0,0.4)";
+        ctx!.fillRect(0, 0, canvas.width, canvas.height);
+      }
     }
     texture.needsUpdate = true;
     return true;
   }
-  return { update, dispose: () => texture.dispose() };
+  return { update, get backlight() { return backlight; }, dispose: () => texture.dispose() };
 }

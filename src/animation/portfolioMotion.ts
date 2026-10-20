@@ -293,20 +293,7 @@ export function createPortfolioMotion(
       gsap.set(closing, { autoAlpha: 0, y: 16 });
     }
 
-    const contact = root.querySelector<HTMLElement>("#contact-title");
-    if (contact) {
-      gsap.from(contact, {
-        y: 32,
-        autoAlpha: 0,
-        duration: 1.1,
-        ease: "power4.out",
-        scrollTrigger: {
-          trigger: contact,
-          start: "top 86%",
-          toggleActions: "play none none reverse",
-        },
-      });
-    }
+    // Contact stays at its final viewport position; PhoneScene fades the whole copy.
 
     gsap.set(voice, { autoAlpha: 0, xPercent: -50, yPercent: -50 });
     pulse = gsap.timeline({ repeat: -1, paused: true }).fromTo(

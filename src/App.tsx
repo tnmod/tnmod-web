@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { visibleTimeout } from "./animation/pageLifecycle";
 import type { LoadingMotion } from "./animation/loadingMotion";
 import { profile, projects } from "./content/portfolio";
 import "./App.css";
@@ -187,14 +188,8 @@ function App() {
 
   useEffect(() => {
     if (staticMode || revealed) return;
-    const timeout = setTimeout(handleFallback, 20000);
-    return () => clearTimeout(timeout);
+    return visibleTimeout(handleFallback, 20000);
   }, [staticMode, revealed, handleFallback]);
-
-  useEffect(() => {
-    if (!staticMode || !revealed) return;
-    document.getElementById(window.location.hash.slice(1))?.scrollIntoView();
-  }, [staticMode, revealed]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -244,9 +239,72 @@ function App() {
     }
   }
 
+  const footer = (
+    <footer className="footer">
+      <span className="closing-footer-rule" aria-hidden="true" />
+      <button type="button" className="wordmark" data-scroll-to="home">
+        tnmod<span className="wordmark-dot">.</span>
+      </button>
+      <p>
+        Nguyễn Phú Tín
+        <br />
+        <span>Built with purpose. Made to feel right.</span>
+      </p>
+      <button type="button" data-scroll-to="home" className="back-top">
+        Back to top <Arrow />
+      </button>
+    </footer>
+  );
+
+  const contactCopy = (
+    <div className="contact-copy">
+      <p className="section-kicker">The line is still open.</p>
+      <h2 id="contact-title">
+        Your idea.
+        <br />
+        Our next
+        <br />
+        conversation.
+      </h2>
+      <a className="contact-email" href={`mailto:${profile.email}`}>
+        {profile.email}
+        <Arrow diagonal />
+      </a>
+      <div className="contact-links">
+        <button className="text-link" onClick={copyEmail}>
+          {copied ? "Email copied" : "Copy email"}
+        </button>
+        <a href={profile.github} target="_blank" rel="noreferrer">
+          GitHub <Arrow diagonal />
+        </a>
+        <a href={profile.cv} target="_blank" rel="noreferrer">
+          CV <Arrow diagonal />
+        </a>
+      </div>
+      {footer}
+      <span className="sr-only" role="status">
+        {copied ? "Email address copied." : ""}
+      </span>
+    </div>
+  );
+
+
+
   return (
     <div
       className={`portfolio${staticMode ? " is-simple" : ""}${mobile ? " is-mobile" : ""}`}
+      onClick={(event) => {
+        const control = (event.target as Element).closest<HTMLButtonElement>("button[data-scroll-to]");
+        const id = control?.dataset.scrollTo;
+        const target = id ? document.getElementById(id) : null;
+        if (!target) return;
+        if (staticMode) target.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+        else window.dispatchEvent(new CustomEvent("portfolio-navigate", { detail: id }));
+        if (control?.classList.contains("skip-link")) {
+          target.tabIndex = -1;
+          target.focus({ preventScroll: true });
+        }
+      }}
     >
       <div
         ref={loaderRef}
@@ -266,26 +324,27 @@ function App() {
         </div>
         <span className="loader-caption" aria-live="off">Loading /boot/session.manifest.json</span>
       </div>
-      <a className="skip-link" href="#about">
+      <button type="button" className="skip-link" data-scroll-to="about">
         Skip to the introduction
-      </a>
+      </button>
       <header className="header">
-        <a
+        <button
+          type="button"
           className="wordmark"
-          href="#home"
+          data-scroll-to="home"
           aria-label="TNMOD — back to the top"
         >
           tnmod<span className="wordmark-dot">.</span>
-        </a>
+        </button>
         <nav
           id="primary-nav"
           className={`nav${menuOpen ? " is-open" : ""}`}
           aria-label="Main navigation"
           onClick={() => setMenuOpen(false)}
         >
-          <a href="#about">About</a>
-          <a href="#work">Work</a>
-          <a href="#contact">Contact</a>
+          <button type="button" data-scroll-to="about">About</button>
+          <button type="button" data-scroll-to="work">Work</button>
+          <button type="button" data-scroll-to="contact">Contact</button>
         </nav>
         <div className="header-actions">
           <button className="theme-toggle" aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
@@ -358,8 +417,9 @@ function App() {
                   I’m Tín, a frontend developer turning ideas into thoughtful
                   experiences for web and mobile.
                 </p>
-                <a
-                  href={staticMode ? "#work" : "#caller"}
+                <button
+                  type="button"
+                  data-scroll-to={staticMode ? "work" : "caller"}
                   className="round-link"
                 >
                   <span className="circle-icon">
@@ -372,7 +432,7 @@ function App() {
                     </svg>
                   </span>
                   {staticMode ? "Explore my work" : "Scroll to pick up"}
-                </a>
+                </button>
               </div>
               {simple && !mobile && (
                 <img
@@ -604,51 +664,12 @@ function App() {
               className="chapter contact-section"
               aria-labelledby="contact-title"
             >
-              <div className="contact-copy">
-                <p className="section-kicker">The line is still open.</p>
-                <h2 id="contact-title">
-                  Your idea.
-                  <br />
-                  Our next
-                  <br />
-                  conversation.
-                </h2>
-                <a className="contact-email" href={`mailto:${profile.email}`}>
-                  {profile.email}
-                  <Arrow diagonal />
-                </a>
-                <div className="contact-links">
-                  <button className="text-link" onClick={copyEmail}>
-                    {copied ? "Email copied" : "Copy email"}
-                  </button>
-                  <a href={profile.github} target="_blank" rel="noreferrer">
-                    GitHub <Arrow diagonal />
-                  </a>
-                  <a href={profile.cv} target="_blank" rel="noreferrer">
-                    CV <Arrow diagonal />
-                  </a>
-                </div>
-                <span className="sr-only" role="status">
-                  {copied ? "Email address copied." : ""}
-                </span>
-              </div>
+              {staticMode && contactCopy}
             </section>
           </main>
-          <footer className="footer">
-            <a className="wordmark" href="#home">
-              tnmod<span className="wordmark-dot">.</span>
-            </a>
-            <p>
-              Nguyễn Phú Tín
-              <br />
-              <span>Built with purpose. Made to feel right.</span>
-            </p>
-            <a href="#home" className="back-top">
-              Back to top <Arrow />
-            </a>
-          </footer>
         </div>
       </div>
+      {!staticMode && contactCopy}
       {!mobile && (
         <div className="scene-toolbar">
           <span className="connection-status">

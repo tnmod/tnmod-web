@@ -24,10 +24,10 @@
   gap: 36px;
   font-size: 13px;
 }
-.nav a {
+.nav button {
   position: relative;
 }
-.nav a::after {
+.nav button::after {
   content: "";
   position: absolute;
   left: 0;
@@ -38,7 +38,7 @@
   transform: scaleX(0);
   transform-origin: left;
 }
-.nav a:hover::after {
+.nav button:hover::after {
   transform: scaleX(1);
 }
 .header-actions {
@@ -907,7 +907,7 @@ h2 {
   .nav.is-open {
     display: flex;
   }
-  .nav a {
+  .nav button {
     padding-block: 12px;
   }
   .phone-scene {
@@ -1419,3 +1419,112 @@ html.is-loading {
 
 [data-theme="dark"] .project-open { background: #1b2c2d; }
 [data-theme="dark"] .visual-caption { color: #b1c2d4; }
+
+/* Section navigation is an action, with no fragment URL or history entry. */
+.wordmark, .round-link, .back-top { padding: 0; text-align: inherit; }
+.nav button { font: inherit; }
+
+.ring-sound-toggle {
+  position: fixed;
+  right: 5vw;
+  bottom: 20px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 10px;
+}
+.ring-sound-toggle svg { width: 16px; height: 16px; }
+.ring-sound-toggle:disabled { cursor: default; color: var(--muted); }
+
+/* One 16:10 composition for both the Blender camera and closing copy. */
+.portfolio {
+  --scene-stage-width: min(100vw, 160svh);
+  --scene-stage-height: min(62.5vw, 100svh);
+  --scene-stage-left: calc((100vw - var(--scene-stage-width)) / 2);
+  --scene-stage-top: calc((100svh - var(--scene-stage-height)) / 2);
+}
+@media (min-width: 761px) {
+  .portfolio:not(.is-simple) .contact-section {
+    display: block;
+    padding: 0;
+    min-height: 100svh;
+  }
+  .portfolio:not(.is-simple) > .contact-copy {
+    position: fixed;
+    z-index: 3;
+    opacity: 0;
+    visibility: hidden;
+    left: calc(var(--scene-stage-left) + var(--scene-stage-width) * 0.57);
+    top: calc(var(--scene-stage-top) + var(--scene-stage-height) * 0.2);
+    width: calc(var(--scene-stage-width) * 0.38);
+    margin: 0;
+    translate: none;
+    isolation: isolate;
+  }
+  .portfolio:not(.is-simple) > .contact-copy::before {
+    content: "";
+    position: absolute;
+    inset: -20px -24px;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--paper) 58%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    mask-image:
+      linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent),
+      linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+    mask-composite: intersect;
+  }
+  .portfolio:not(.is-simple) .contact-copy h2 {
+    font-size: clamp(30px, calc(var(--scene-stage-width) * 0.044), 66px);
+  }
+  .portfolio:not(.is-simple) .contact-copy .section-kicker {
+    font-size: clamp(10px, calc(var(--scene-stage-width) * 0.009), 12px);
+    margin-bottom: calc(var(--scene-stage-height) * 0.035);
+  }
+  .portfolio:not(.is-simple) .contact-email {
+    margin-top: calc(var(--scene-stage-height) * 0.045);
+    font-size: clamp(11px, calc(var(--scene-stage-width) * 0.013), 20px);
+    gap: calc(var(--scene-stage-width) * 0.01);
+  }
+  .portfolio:not(.is-simple) .contact-links {
+    margin-top: calc(var(--scene-stage-height) * 0.035);
+    gap: clamp(12px, calc(var(--scene-stage-width) * 0.018), 25px);
+  }
+  .closing-footer-rule {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    background: color-mix(in srgb, var(--ink) 18%, transparent);
+    transform-origin: left center;
+  }
+}
+
+/* Closing credits belong to the Contact copy, in its normal local flow. */
+.contact-copy > .footer {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 24px;
+  align-items: center;
+  margin-top: clamp(24px, 4vh, 40px);
+  padding: 22px 0 0;
+  border: 0;
+  background: transparent;
+}
+.contact-copy > .footer .wordmark { font-size: 25px; }
+.contact-copy > .footer .back-top {
+  grid-column: 2;
+  justify-self: start;
+  font-size: 10px;
+}
+.contact-copy > .footer p { font-size: 10px; }

@@ -1,44 +1,11 @@
 import gsap from "gsap";
 import { ScrollToPlugin } from "gsap/ScrollToPlugin";
-import type { PaceZone } from "./scrollPacing";
 
 gsap.registerPlugin(ScrollToPlugin);
 
-/** Distance-weighted GSAP easing gives reveal zones more of the journey. */
-export function navigationRoute(from: number, to: number, zones: PaceZone[]) {
-  const direction = to >= from ? 1 : -1;
-  const low = Math.min(from, to);
-  const high = Math.max(from, to);
-  const points = [...new Set([low, high, ...zones.flatMap((zone) => [zone.start, zone.end])
-    .filter((point) => point > low && point < high)])].sort((a, b) => a - b);
-  const spans = points.slice(1).map((end, index) => {
-    const start = points[index];
-    const middle = (start + end) / 2;
-    const rate = zones.reduce((value, zone) => middle >= zone.start && middle < zone.end
-      ? Math.min(value, zone.rate) : value, 1);
-    return { start, end, cost: (end - start) / Math.sqrt(rate) };
-  });
-  if (direction < 0) spans.reverse();
-  const cost = spans.reduce((sum, span) => sum + span.cost, 0);
-  return (progress: number) => {
-    if (!cost || progress <= 0) return from;
-    if (progress >= 1) return to;
-    let remaining = progress * cost;
-    for (const span of spans) {
-      if (remaining <= span.cost) {
-        const part = remaining / span.cost;
-        return direction > 0 ? span.start + (span.end - span.start) * part
-          : span.end - (span.end - span.start) * part;
-      }
-      remaining -= span.cost;
-    }
-    return to;
-  };
-}
-
 type Scroller = { scrollTop: () => number };
 
-export function createAnchorNavigation(root: HTMLElement, scroller: Scroller, getZones: () => PaceZone[]) {
+export function createAnchorNavigation(root: HTMLElement, scroller: Scroller) {
   let tween: gsap.core.Tween | undefined;
   const ease = gsap.parseEase("power2.inOut");
   const cancel = () => {
@@ -76,14 +43,11 @@ export function createAnchorNavigation(root: HTMLElement, scroller: Scroller, ge
       const to = Math.min(max, Math.max(0, destination));
       const distance = Math.abs(to - from);
       if (distance < 2) return;
-      // Keep routes stable while travelling: reveal completion may change the
-      // live wheel zones, but must never warp an anchor tween in mid-flight.
-      const route = navigationRoute(from, to, getZones());
       const duration = Math.min(7, Math.max(1.4, 1.5 + Math.sqrt(distance / window.innerHeight) * 1.35));
       tween = gsap.to(window, {
         scrollTo: { y: to / 0.5, autoKill: true },
         duration,
-        ease: (progress: number) => (route(ease(progress)) - from) / (to - from),
+        ease,
         overwrite: "auto",
         onComplete: () => { tween = undefined; },
         onInterrupt: () => { tween = undefined; },

@@ -13,8 +13,13 @@ import { ScrollSmoother } from "gsap/ScrollSmoother";
 import { chapters, clamp, STORY } from "../animation/timeline";
 import { createPortfolioMotion } from "../animation/portfolioMotion";
 import type { PortfolioMotion } from "../animation/portfolioMotion";
-import { createCallDisplay } from "../animation/callDisplay";
+import { createRingSound } from "../animation/ringSound";
+import type { RingSoundState } from "../animation/ringSound";
+import { callStateAt, createCallDisplay } from "../animation/callDisplay";
 import { createScrollPacing } from "../animation/scrollPacing";
+import { SCENE_ASPECT, sceneViewport } from "../animation/sceneViewport";
+import { visibleFrameLoop } from "../animation/pageLifecycle";
+import { createClosingMotion } from "../animation/closingMotion";
 import { createAnchorNavigation } from "../animation/anchorNavigation";
 
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
@@ -53,13 +58,15 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
   const callerRef = useRef<HTMLDivElement>(null);
   const voiceRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
+  const [soundState, setSoundState] = useState<RingSoundState>("waiting");
+  const soundRef = useRef<ReturnType<typeof createRingSound> | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
     const content = contentRef.current;
     if (!host || !content) return;
     let cancelled = false;
-    let raf = 0;
+    let openingReady = false;
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
@@ -81,6 +88,8 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     renderer.domElement.setAttribute("aria-hidden", "true");
     host.prepend(renderer.domElement);
 
+    const ringSound = createRingSound(setSoundState);
+    soundRef.current = ringSound;
     const scene = new THREE.Scene();
     const environment = new RoomEnvironment();
     const pmrem = new THREE.PMREMGenerator(renderer);
@@ -149,17 +158,27 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     let canvasWidth = window.innerWidth;
     let canvasHeight = window.innerHeight;
     let canvasShift = 0;
+    let canvasLeft = 0;
+    let canvasTop = 0;
+    let viewportWidth = 0;
+    let viewportHeight = 0;
+    const composition = content.closest<HTMLElement>(".portfolio");
     let baseFov = 30;
-    let fittedFov = 30;
     let targetTime = 2;
 
     let active = 0;
+    let retainedChapter = 0;
+    let retainedProgress = 0;
+    let pendingResize: { chapter: number; progress: number } | undefined;
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     let atTop = true;
     let previousTimestamp = 0;
     let ringTime = 0;
     let lastRenderedTime = -1;
     let isDirty = true;
     let phasePositions: number[] = [];
+    let contactTop = Infinity;
+    const closingMotion = composition ? createClosingMotion(composition) : undefined;
     applyTheme();
     const fadeCaller = callerRef.current
       ? gsap.quickTo(callerRef.current, "opacity", { duration: 0.3, ease: "power2.out" })
@@ -181,40 +200,22 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       smoothTouch: false,
       effects: false,
     });
-    const followAnchor = (event: MouseEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.button !== 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
-      )
-        return;
-      const link = (event.target as Element).closest<HTMLAnchorElement>(
-        'a[href^="#"]',
-      );
-      const id = link?.getAttribute("href")?.slice(1);
-      const target = id ? document.getElementById(id) : null;
+    const navigate = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      const target = document.getElementById(id);
       if (!target) return;
-      event.preventDefault();
-      if (location.hash !== `#${id}`) history.pushState(null, "", `#${id}`);
       showNav();
       if (anchorNavigation) anchorNavigation.to(target);
       else smoother.scrollTo(target, true, "top top");
     };
-    const followLocation = () => {
+    const resetNavigation = () => {
       anchorNavigation?.cancel();
-      const target = document.getElementById(location.hash.slice(1));
-      if (target) smoother.scrollTo(target, false, "top top");
-      else smoother.scrollTo(0, false);
+      smoother.scrollTo(0, false);
       navSample = smoother.scrollTop();
       showNav();
     };
-    document.addEventListener("click", followAnchor);
-    window.addEventListener("popstate", followLocation);
-    window.addEventListener("hashchange", followLocation);
-    window.addEventListener("portfolio-ready", followLocation);
+    window.addEventListener("portfolio-navigate", navigate);
+    window.addEventListener("portfolio-ready", resetNavigation);
     const header = document.querySelector<HTMLElement>(".header");
     let navSample = smoother.scrollTop();
     let navHidden = false;
@@ -266,12 +267,17 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           smoother.scrollTop() -
           viewport,
       );
+      const contact = document.getElementById("contact");
+      contactTop = contact ? contact.getBoundingClientRect().top + smoother.scrollTop() : Infinity;
       scrollPacing?.refresh();
     }
 
     function updateScroll() {
-      if (!phasePositions.length) return;
+      if (!phasePositions.length || pendingResize) return;
       const scroll = smoother.scrollTop();
+      // Contact lives outside smooth-content and stays fixed in the viewport.
+      const offset = scroll - contactTop;
+      closingMotion?.setVisible(offset > -window.innerHeight * 0.45);
       updateNav(scroll);
       atTop = scroll < 8;
       let index = 0;
@@ -282,6 +288,12 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       const start = phasePositions[index];
       const end = phasePositions[index + 1];
       const part = clamp((scroll - start) / Math.max(1, end - start));
+      // ScrollTrigger can refresh geometry before our resize listener runs.
+      // Keep the last progress measured at the previous stable viewport.
+      if (viewportWidth === window.innerWidth && viewportHeight === window.innerHeight) {
+        retainedChapter = index;
+        retainedProgress = part;
+      }
       targetTime = chapter.start + (chapter.end - chapter.start) * part;
       if (status) status.textContent = chapter.label;
       if (progress)
@@ -290,23 +302,57 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     }
 
     function resize() {
-      const { width, height } = host!.getBoundingClientRect();
+      const resized = viewportWidth > 0 && (viewportWidth !== window.innerWidth || viewportHeight !== window.innerHeight);
+      if (resized && camera && mixer && !pendingResize) pendingResize = { chapter: retainedChapter, progress: retainedProgress };
+      const chapterIndex = pendingResize?.chapter ?? retainedChapter;
+      const chapterProgress = pendingResize?.progress ?? retainedProgress;
+      viewportWidth = window.innerWidth;
+      viewportHeight = window.innerHeight;
+      const viewport = sceneViewport(viewportWidth, viewportHeight);
+      const { width, height, left, top } = viewport;
       canvasWidth = width;
       canvasHeight = height;
+      canvasLeft = left;
+      canvasTop = top;
+      Object.assign(host!.style, {
+        width: `${width}px`, height: `${height}px`,
+        left: `${left}px`, top: `${top}px`, right: "auto", bottom: "auto",
+      });
+      for (const [key, value] of Object.entries(viewport)) {
+        composition?.style.setProperty(`--scene-stage-${key}`, `${value}px`);
+      }
       renderer.setSize(width, height);
       composer.setSize(width, height);
       if (camera) {
-        camera.aspect = width / height;
-        // Preserve the authored horizontal framing on narrow canvases.
-        const fit = Math.min(1, camera.aspect / 1.6);
-        fittedFov = THREE.MathUtils.radToDeg(
-          2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) / fit),
-        );
-        camera.fov = fittedFov;
+        camera.aspect = SCENE_ASPECT;
+        camera.fov = baseFov;
         camera.updateProjectionMatrix();
       }
       isDirty = true;
+      // Update ScrollSmoother's native scroll range before restoring progress.
+      // Otherwise the browser clamps the new position to the previous page height.
+      if (resized && camera && mixer) ScrollTrigger.refresh();
       measure();
+      if (resized && camera && mixer) {
+        anchorNavigation?.cancel();
+        const start = phasePositions[chapterIndex] ?? 0;
+        const end = phasePositions[chapterIndex + 1] ?? start;
+        const destination = start + (end - start) * chapterProgress;
+        smoother.scrollTop(destination);
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (cancelled || !pendingResize) return;
+          const target = pendingResize;
+          // Coalesce continuous resize events and ScrollSmoother's deferred refresh.
+          ScrollTrigger.refresh();
+          measure();
+          const targetStart = phasePositions[target.chapter] ?? 0;
+          const targetEnd = phasePositions[target.chapter + 1] ?? targetStart;
+          smoother.scrollTop(targetStart + (targetEnd - targetStart) * target.progress);
+          pendingResize = undefined;
+          updateScroll();
+        }, 250);
+      }
       updateScroll();
     }
 
@@ -320,23 +366,21 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         updateScroll();
       },
     });
+    window.addEventListener("resize", resize);
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     observer.observe(content);
-    const visibilityChanged = () => {
-      if (document.hidden) {
-        cancelAnimationFrame(raf);
-        raf = 0;
-      } else if (!raf) {
-        previousTimestamp = 0;
-        raf = requestAnimationFrame(tick);
-      }
-    };
+    const frameLoop = visibleFrameLoop(tick, () => {
+      previousTimestamp = 0;
+      isDirty = true;
+      gsap.ticker.wake();
+      resize();
+      ScrollTrigger.refresh();
+    });
     const contextLost = (event: Event) => {
       event.preventDefault();
       onFallback();
     };
-    document.addEventListener("visibilitychange", visibilityChanged);
     renderer.domElement.addEventListener("webglcontextlost", contextLost);
 
     async function load() {
@@ -399,24 +443,26 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         if (voiceRef.current) {
           motion = createPortfolioMotion(content!, voiceRef.current, () => {
             if (!voiceAnchor || !camera)
-              return { x: canvasWidth * 0.86, y: canvasHeight * 0.2 };
+              return { x: canvasLeft + canvasWidth * 0.86, y: canvasTop + canvasHeight * 0.2 };
             voiceAnchor.getWorldPosition(voicePosition);
             voicePosition.project(camera);
             return {
-              x: (voicePosition.x * 0.5 + 0.5) * canvasWidth + canvasShift,
-              y: (-voicePosition.y * 0.5 + 0.5) * canvasHeight,
+              x: canvasLeft + (voicePosition.x * 0.5 + 0.5) * canvasWidth + canvasShift,
+              y: canvasTop + (-voicePosition.y * 0.5 + 0.5) * canvasHeight,
             };
           });
           scrollPacing = createScrollPacing(content!, smoother,
             () => motion!.getScrollReadiness(), () => phasePositions);
-          anchorNavigation = createAnchorNavigation(content!, smoother,
-            () => scrollPacing!.getZones());
+          anchorNavigation = createAnchorNavigation(content!, smoother);
         }
         onProgress(96);
         setLoaded(true);
-        raf = requestAnimationFrame(tick);
+        frameLoop.start();
         await onReady();
-        if (!cancelled) motion?.startOpening();
+        if (!cancelled) {
+          openingReady = true;
+          motion?.startOpening();
+        }
       } catch (error) {
         if (!cancelled) {
           console.error("Unable to prepare the phone scene.", error);
@@ -426,7 +472,6 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     }
 
     function tick(timestamp: number) {
-      raf = 0;
       if (cancelled || document.hidden || !camera || !mixer) return;
       const elapsedDelta = previousTimestamp ? (timestamp - previousTimestamp) / 1000 : 0;
       const delta = Math.min(0.05, elapsedDelta);
@@ -440,6 +485,10 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         ringTime = 0;
         time = Math.min(STORY.end - 0.00001, targetTime);
       }
+      const callState = callStateAt(time);
+      ringSound.update(openingReady && callState === "ringing");
+      ringSound.updateHandset(openingReady ? callState !== "connected" : null);
+      ringSound.updateDisconnected(openingReady ? callState === "ended" : null);
       const displayChanged = callDisplay?.update(time, reducedMotion.matches);
       if (isDirty || displayChanged || Math.abs(time - lastRenderedTime) > 0.00001) {
         mixer.setTime(time);
@@ -451,16 +500,16 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         );
         const closingLayout = Math.sin(clamp(closing / 0.4) * Math.PI / 2);
         const shift = mobile ? 0 : 12 * opening - 38 * closingLayout;
-        canvasShift = (shift * window.innerWidth) / 100;
+        canvasShift = (shift * canvasWidth) / 100;
         // Finish with an oversized phone cropped by the left edge. Keep the LCD
         // in view while the lower body and cord continue behind the footer.
-        const lift = mobile ? 0 : -1 * closingLayout;
-        host!.style.transform = `translate(${shift}vw, ${lift}vh)`;
-        const framing = mobile ? 1 : 1 + 0.23 * opening - 0.22 * closingLayout;
+        host!.style.transform = `translateX(${canvasShift}px)`;
+        // Closing orientation and zoom come from the Blender camera animation.
+        const framing = mobile ? 1 : 1 + 0.23 * opening;
         camera.fov = THREE.MathUtils.radToDeg(
           2 *
             Math.atan(
-              Math.tan(THREE.MathUtils.degToRad(fittedFov / 2)) * framing,
+              Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) * framing,
             ),
         );
         camera.updateProjectionMatrix();
@@ -483,7 +532,8 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           spill.position.copy(lcdCenter).addScaledVector(lcdNormal, 0.012);
           lcd.localToWorld(spill.position);
         }
-        const backlight = time < STORY.rest ? 1 : 0.45;
+        const backlight = (callState === "ended" ? 0.65 : 1) * (callDisplay?.backlight ?? 1);
+        spill.color.set(callState === "ended" ? 0xff554b : 0xc9ef9c);
         spill.intensity = dark ? 0.002 * backlight : 0;
         bloom.strength = 0.2 * backlight;
         if (dark) composer.render();
@@ -492,16 +542,22 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         isDirty = false;
       }
       motion?.update(time);
-      scrollPacing?.update();
-      raf = requestAnimationFrame(tick);
     }
 
     void load();
     return () => {
       cancelled = true;
-      cancelAnimationFrame(raf);
+      clearTimeout(resizeTimer);
+      frameLoop.dispose();
+      ringSound.dispose();
+      if (soundRef.current === ringSound) soundRef.current = null;
       observer.disconnect();
+      window.removeEventListener("resize", resize);
       themeObserver.disconnect();
+      closingMotion?.dispose();
+      for (const key of ["width", "height", "left", "top"]) {
+        composition?.style.removeProperty(`--scene-stage-${key}`);
+      }
       trigger.kill();
       header?.removeEventListener("focusin", showNav);
       navContext.revert();
@@ -511,12 +567,9 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       anchorNavigation?.dispose();
       callDisplay?.dispose();
       smoother.kill();
-      document.removeEventListener("click", followAnchor);
-      window.removeEventListener("popstate", followLocation);
-      window.removeEventListener("hashchange", followLocation);
-      window.removeEventListener("portfolio-ready", followLocation);
+      window.removeEventListener("portfolio-navigate", navigate);
+      window.removeEventListener("portfolio-ready", resetNavigation);
       document.documentElement.classList.remove("has-smooth-scroll");
-      document.removeEventListener("visibilitychange", visibilityChanged);
       renderer.domElement.removeEventListener("webglcontextlost", contextLost);
       mixer?.stopAllAction();
       if (model) mixer?.uncacheRoot(model);
@@ -540,6 +593,19 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           </div>
         )}
       </div>
+      {loaded && (
+        <button type="button" className="ring-sound-toggle" data-ring-sound
+          aria-label={soundState === "on" ? "Mute phone sounds" : soundState === "unavailable" ? "Phone sounds unavailable" : "Enable phone sounds"}
+          aria-pressed={soundState === "on"}
+          disabled={soundState === "unavailable"}
+          onClick={() => soundRef.current?.setEnabled(soundState !== "on")}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4Z" />
+            {soundState === "on" ? <path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /> : <path d="m16 9 6 6m0-6-6 6" />}
+          </svg>
+          {soundState === "on" ? "Sound on" : soundState === "waiting" ? "Enable sound" : soundState === "muted" ? "Sound off" : "Sound unavailable"}
+        </button>
+      )}
       <div className="voice-source" ref={voiceRef} aria-hidden="true">
         <span className="voice-orbit" />
         <span className="voice-orbit" />
