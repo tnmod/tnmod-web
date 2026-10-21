@@ -1452,6 +1452,9 @@ html.is-loading {
   --scene-stage-top: calc((100svh - var(--scene-stage-height)) / 2);
 }
 @media (min-width: 761px) {
+  .portfolio:not(.is-simple) .hero-copy {
+    margin-left: 49%;
+  }
   .portfolio:not(.is-simple) .contact-section {
     display: block;
     padding: 0;

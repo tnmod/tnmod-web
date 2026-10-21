@@ -22,7 +22,8 @@ yarn preview
 - `src/App.tsx`: introduction, experience and page copy.
 - `src/animation/timeline.ts`: exact GLB timestamps and scroll chapters.
 - `src/components/PhoneScene.tsx`: rendering, responsive camera framing and animation scrubbing.
-- `public/models/portfolio-phone.glb`: Blender V11, with the `Portfolio_Story` clip and authored camera.
+- `public/models/portfolio-phone.glb`: Blender V23, with the `Portfolio_Story` clip and full-phone camera.
+- `src/animation/phoneCameraFraming.ts` and `.json`: separate web close-up offsets applied after the Blender camera animation.
 - `public/documents/nguyen-phu-tin-cv.pdf`: original CV, Vietnamese.
 - `public/images/stockpc-dashboard.png`: screenshot from the public StockPC repository.
 
@@ -33,6 +34,10 @@ The booking illustration is an original visual treatment, not a screenshot of th
 The 24 fps Blender timeline runs from frame 1 to 399 (16.583333 seconds). At the page top, the 0–2 second ring loops. Each document chapter maps its actual scroll height to a GLB segment, leaving enough reading space for experience and projects. Desktop (above 760 px) uses the 3D experience by default, with the authored camera animation and framing adjustments for the opening and closing compositions. Mobile at 760 px and below is always a static, lightweight landing page: no Three.js scene, GLB request, telephone poster, or scroll animation. Animation rendering sleeps while the tab is hidden. Desktop falls back to readable static content if WebGL fails or scene preparation exceeds 20 seconds of visible-tab time. Switching away pauses this budget; returning refreshes the layout and resumes one render loop once the scene is ready. There is no manual Simple view switch, and the system reduced-motion preference does not switch desktop out of 3D mode.
 
 The header provides About, Work and Contact links, with a collapsible menu on mobile. Section controls scroll without changing the URL or adding browser history entries; desktop navigation synchronizes the scene with the selected section.
+
+The Blender camera uses a centered 16:10 reference composition. The canvas renders across the full desktop viewport with a camera view offset, extending the visible scene beyond that reference frame. Opening and closing shifts move the camera frame rather than the canvas, so close-up phone geometry is clipped only at the window edges. Projected text anchors and Contact copy retain their authored alignment on wide and tall screens.
+
+The source `portfolio-story-v23-full-phone-camera.blend` frames the complete body, handset and evaluated cord with at least a 6% margin at all 399 frames. Camera-space translations for the website's closer views are stored separately in `phoneCameraFraming.json`, sampled at the GLB's frame timestamps. `createPhoneCameraFraming().apply(camera, time, amount)` uses `amount=1` for the existing web composition; `amount=0` retains the full-phone Blender view. Reset the applied offset before evaluating the animation mixer to prevent accumulation on paused redraws. The previous V22 source remains intact.
 
 Desktop section navigation use GSAP ScrollToPlugin with distance-based duration (1.4–7 seconds) and easing weighted toward the reveal zones. About and Work land beyond their heading reveal gates so supporting copy appears without an extra wheel movement. The header remains available during the journey; a new link replaces the current route, and wheel, touch, pointer or navigation-key input interrupts it. Reloading starts at the top; section navigation does not create URL fragments.
 

@@ -17,10 +17,11 @@ import { createRingSound } from "../animation/ringSound";
 import type { RingSoundState } from "../animation/ringSound";
 import { callStateAt, createCallDisplay } from "../animation/callDisplay";
 import { createScrollPacing } from "../animation/scrollPacing";
-import { SCENE_ASPECT, sceneViewport } from "../animation/sceneViewport";
+import { sceneViewOffset, sceneViewport } from "../animation/sceneViewport";
 import { visibleFrameLoop } from "../animation/pageLifecycle";
 import { createClosingMotion } from "../animation/closingMotion";
 import { createAnchorNavigation } from "../animation/anchorNavigation";
+import { createPhoneCameraFraming } from "../animation/phoneCameraFraming";
 
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 
@@ -111,7 +112,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     const renderPass = new RenderPass(scene, new THREE.PerspectiveCamera());
     const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.2, 0.3, 0.95);
     // Preserve the scene alpha when adding bloom, so the page background stays
-    // seamless as the authored camera framing translates the canvas.
+    // seamless across the full viewport around the authored camera frame.
     bloom.blendMaterial.blending = THREE.CustomBlending;
     bloom.blendMaterial.blendSrc = THREE.OneFactor;
     bloom.blendMaterial.blendDst = THREE.OneFactor;
@@ -146,6 +147,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     let camera: THREE.PerspectiveCamera | undefined;
+    const framePhoneForWeb = createPhoneCameraFraming();
     let mixer: THREE.AnimationMixer | undefined;
     let model: THREE.Group | undefined;
     let screenAnchor: THREE.Object3D | undefined;
@@ -157,9 +159,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let canvasWidth = window.innerWidth;
     let canvasHeight = window.innerHeight;
-    let canvasShift = 0;
-    let canvasLeft = 0;
-    let canvasTop = 0;
+    let stage = sceneViewport(canvasWidth, canvasHeight);
     let viewportWidth = 0;
     let viewportHeight = 0;
     const composition = content.closest<HTMLElement>(".portfolio");
@@ -308,25 +308,21 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       const chapterProgress = pendingResize?.progress ?? retainedProgress;
       viewportWidth = window.innerWidth;
       viewportHeight = window.innerHeight;
-      const viewport = sceneViewport(viewportWidth, viewportHeight);
-      const { width, height, left, top } = viewport;
-      canvasWidth = width;
-      canvasHeight = height;
-      canvasLeft = left;
-      canvasTop = top;
+      stage = sceneViewport(viewportWidth, viewportHeight);
+      canvasWidth = viewportWidth;
+      canvasHeight = viewportHeight;
       Object.assign(host!.style, {
-        width: `${width}px`, height: `${height}px`,
-        left: `${left}px`, top: `${top}px`, right: "auto", bottom: "auto",
+        width: `${canvasWidth}px`, height: `${canvasHeight}px`,
+        left: "0px", top: "0px", right: "auto", bottom: "auto",
       });
-      for (const [key, value] of Object.entries(viewport)) {
+      for (const [key, value] of Object.entries(stage)) {
         composition?.style.setProperty(`--scene-stage-${key}`, `${value}px`);
       }
-      renderer.setSize(width, height);
-      composer.setSize(width, height);
+      renderer.setSize(canvasWidth, canvasHeight);
+      composer.setSize(canvasWidth, canvasHeight);
       if (camera) {
-        camera.aspect = SCENE_ASPECT;
         camera.fov = baseFov;
-        camera.updateProjectionMatrix();
+        updateCameraView();
       }
       isDirty = true;
       // Update ScrollSmoother's native scroll range before restoring progress.
@@ -433,7 +429,9 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         action.clampWhenFinished = true;
         action.play();
         resize();
+        framePhoneForWeb.reset();
         mixer.setTime(atTop ? 0 : targetTime);
+        framePhoneForWeb.apply(camera, atTop ? 0 : targetTime);
         onProgress(75);
         await renderer.compileAsync(scene, camera);
         onProgress(88);
@@ -443,12 +441,12 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
         if (voiceRef.current) {
           motion = createPortfolioMotion(content!, voiceRef.current, () => {
             if (!voiceAnchor || !camera)
-              return { x: canvasLeft + canvasWidth * 0.86, y: canvasTop + canvasHeight * 0.2 };
+              return { x: stage.left + stage.width * 0.86, y: stage.top + stage.height * 0.2 };
             voiceAnchor.getWorldPosition(voicePosition);
             voicePosition.project(camera);
             return {
-              x: canvasLeft + (voicePosition.x * 0.5 + 0.5) * canvasWidth + canvasShift,
-              y: canvasTop + (-voicePosition.y * 0.5 + 0.5) * canvasHeight,
+              x: (voicePosition.x * 0.5 + 0.5) * canvasWidth,
+              y: (-voicePosition.y * 0.5 + 0.5) * canvasHeight,
             };
           });
           scrollPacing = createScrollPacing(content!, smoother,
@@ -471,6 +469,12 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       }
     }
 
+    function updateCameraView(shift = 0) {
+      if (!camera) return;
+      const view = sceneViewOffset(canvasWidth, canvasHeight, shift);
+      camera.setViewOffset(view.fullWidth, view.fullHeight, view.offsetX, view.offsetY, view.width, view.height);
+    }
+
     function tick(timestamp: number) {
       if (cancelled || document.hidden || !camera || !mixer) return;
       const elapsedDelta = previousTimestamp ? (timestamp - previousTimestamp) / 1000 : 0;
@@ -491,7 +495,9 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
       ringSound.updateDisconnected(openingReady ? callState === "ended" : null);
       const displayChanged = callDisplay?.update(time, reducedMotion.matches);
       if (isDirty || displayChanged || Math.abs(time - lastRenderedTime) > 0.00001) {
+        framePhoneForWeb.reset();
         mixer.setTime(time);
+        framePhoneForWeb.apply(camera, time);
         scene.updateMatrixWorld(true);
         const mobile = window.innerWidth <= 760;
         const opening = 1 - clamp((time - 2) / 2);
@@ -499,11 +505,11 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
           (time - STORY.hangupStart) / (STORY.rest - STORY.hangupStart),
         );
         const closingLayout = Math.sin(clamp(closing / 0.4) * Math.PI / 2);
-        const shift = mobile ? 0 : 12 * opening - 38 * closingLayout;
-        canvasShift = (shift * canvasWidth) / 100;
+        const shift = mobile ? 0 : -27 * opening - 50 * closingLayout;
+        const canvasShift = (shift * stage.width) / 100;
         // Finish with an oversized phone cropped by the left edge. Keep the LCD
         // in view while the lower body and cord continue behind the footer.
-        host!.style.transform = `translateX(${canvasShift}px)`;
+        // Move the camera frame instead of the canvas, leaving no inner crop edge.
         // Closing orientation and zoom come from the Blender camera animation.
         const framing = mobile ? 1 : 1 + 0.23 * opening;
         camera.fov = THREE.MathUtils.radToDeg(
@@ -512,7 +518,7 @@ export default function PhoneScene({ contentRef, onFallback, onProgress, onReady
               Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) * framing,
             ),
         );
-        camera.updateProjectionMatrix();
+        updateCameraView(canvasShift);
         if (callerRef.current && screenAnchor) {
           screenAnchor.getWorldPosition(screenPosition);
           screenPosition.project(camera);
