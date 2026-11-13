@@ -1,4 +1,4 @@
-# Phú Tín — portfolio
+# Nguyễn Phú Tín — portfolio
 
 An English portfolio built around an animated desk telephone. Vite, React, TypeScript, Three.js and GSAP. Content comes from the supplied CV and public GitHub repositories.
 
